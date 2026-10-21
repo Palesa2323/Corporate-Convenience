@@ -29,16 +29,28 @@ def init_db():
         """)
 
 
+
 def save_ticket(message, department):
     """Save a ticket and return its complete record."""
     message = message.strip()
-    department = department.strip().upper()
+
+    department_map = {
+        "HR": "HR",
+        "IT": "IT",
+        "FINANCE": "Finance",
+        "OPERATIONS": "Operations",
+    }
 
     if not message:
         raise ValueError("Ticket message cannot be empty.")
 
-    if department not in {"HR", "IT", "Finance", "Operations"}:
+    department_key = department.strip().upper()
+
+    if department_key not in department_map:
         raise ValueError("Invalid department.")
+
+    # Convert to the correct display format for the database.
+    department = department_map[department_key]
 
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -53,7 +65,6 @@ def save_ticket(message, department):
         ticket_id = cursor.lastrowid
 
     return get_ticket(ticket_id)
-
 
 def get_ticket(ticket_id):
     """Retrieve a ticket using its ID."""
