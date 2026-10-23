@@ -1,0 +1,201 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corporate Convenience | Support Workspace</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='stylesheet.css') }}">
+</head>
+<body>
+    <div class="app-shell">
+        <header class="app-header">
+            <a class="brand" href="/">
+                <span class="brand-mark">CC</span>
+                <span>
+                    <strong>Corporate Convenience</strong>
+                    <small>Employee Support Workspace</small>
+                </span>
+            </a>
+
+            <div class="header-status">
+                <span class="status-dot"></span>
+                Support Operations
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow">SUPPORT OPERATIONS</p>
+                    <h1>Support workspace</h1>
+                    <p class="page-description">
+                        Submit, classify and route employee support requests
+                        to the right department.
+                    </p>
+                </div>
+
+                <button class="button button-primary" id="newTicketButton">
+                    <span aria-hidden="true">+</span> New ticket
+                </button>
+            </section>
+
+            <section class="stats-grid" aria-label="Ticket summary">
+                <article class="stat-card">
+                    <span class="stat-label">Total tickets</span>
+                    <strong class="stat-number" id="totalTickets">0</strong>
+                    <span class="stat-note">All submitted requests</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">Open</span>
+                    <strong class="stat-number" id="openTickets">0</strong>
+                    <span class="stat-note">Awaiting action</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">In progress</span>
+                    <strong class="stat-number" id="inProgressTickets">0</strong>
+                    <span class="stat-note">Being addressed</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">Resolved</span>
+                    <strong class="stat-number" id="resolvedTickets">0</strong>
+                    <span class="stat-note">Completed requests</span>
+                </article>
+            </section>
+
+            <section class="overview-grid">
+                <article class="panel department-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Tickets by department</h2>
+                            <p>See how requests are distributed across your organisation.</p>
+                        </div>
+                    </div>
+                    <div id="departmentBreakdown" class="department-breakdown">
+                        <p class="muted">Loading department data...</p>
+                    </div>
+                </article>
+
+                <article class="panel routing-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Create a support ticket</h2>
+                            <p>Describe the issue and let the system suggest a department.</p>
+                        </div>
+                    </div>
+
+                    <form id="ticketForm">
+                        <label for="requester">Employee name</label>
+                        <input id="requester" name="requester"
+                               type="text" placeholder="e.g. Palesa Gaetsewe" required>
+
+                        <label for="employeeDepartment">Employee department</label>
+                        <select id="employeeDepartment" name="employee_department" required>
+                            <option value="">Select your department</option>
+                            <option>Finance</option>
+                            <option>Human Resources</option>
+                            <option>IT</option>
+                            <option>Operations</option>
+                            <option>Marketing</option>
+                            <option>Sales</option>
+                            <option>Other</option>
+                        </select>
+
+                        <label for="subject">Subject</label>
+                        <input id="subject" name="subject"
+                               type="text" placeholder="Briefly describe the issue" required>
+
+                        <label for="description">Issue description</label>
+                        <textarea id="description" name="description" rows="4"
+                                  placeholder="Explain what happened and what help you need..."
+                                  required></textarea>
+
+                        <div class="routing-preview">
+                            <span class="preview-icon" aria-hidden="true">✦</span>
+                            <div>
+                                <strong>Smart routing</strong>
+                                <p id="routingPreview">
+                                    Add an issue description to prepare your request.
+                                </p>
+                            </div>
+                        </div>
+
+                        <p id="formMessage" class="form-message" role="status"></p>
+
+                        <button class="button button-primary button-full"
+                                type="submit" id="submitTicketButton">
+                            Submit ticket
+                        </button>
+                    </form>
+                </article>
+            </section>
+
+            <section class="panel tickets-panel" id="ticketsSection">
+                <div class="panel-heading tickets-heading">
+                    <div>
+                        <h2>All support tickets</h2>
+                        <p>Review requests and manage their current status.</p>
+                    </div>
+                    <button class="button button-secondary" id="exportButton">
+                        Export CSV
+                    </button>
+                </div>
+
+                <div class="toolbar">
+                    <div class="search-box">
+                        <span aria-hidden="true">⌕</span>
+                        <input id="searchInput" type="search"
+                               placeholder="Search tickets..." aria-label="Search tickets">
+                    </div>
+
+                    <select id="departmentFilter" aria-label="Filter by department">
+                        <option value="">All departments</option>
+                    </select>
+
+                    <select id="statusFilter" aria-label="Filter by status">
+                        <option value="">All statuses</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In progress</option>
+                        <option value="Resolved">Resolved</option>
+                    </select>
+                </div>
+
+                <div id="ticketsMessage" class="tickets-message" role="status"></div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Requester</th>
+                                <th>Subject</th>
+                                <th>Department</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticketsTableBody">
+                            <tr>
+                                <td colspan="6" class="empty-state">Loading tickets...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer" id="ticketCountLabel">0 tickets</div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <span>Corporate Convenience</span>
+            <span>Smart support. Clear routing. Better service.</span>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</body>
+</html>

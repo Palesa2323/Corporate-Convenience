@@ -1,204 +1,212 @@
 
-import streamlit as st
-import pandas as pd
-
-from classifier import predict_department
+from flask import Flask, jsonify, render_template, request, Response
 from database import (
     init_db,
     save_ticket,
     get_all_tickets,
     update_ticket_status,
 )
+from classifier import predict_department
+import csv
+import io
+import re
+
+app = Flask(__name__)
 
 
-# -----------------------------
-# Page configuration
-# -----------------------------
-st.set_page_config(
-    page_title="Corporate Convenience",
-    page_icon="📋",
-    layout="wide",
-)
-
-# Create the database tables if necessary.
-init_db()
+def row_to_dict(row):
+    """Convert a database row to a regular dictionary."""
+    if hasattr(row, "keys"):
+        return {key: row[key] for key in row.keys()}
+    if isinstance(row, dict):
+        return row
+    return {}
 
 
-# -----------------------------
-# Header
-# -----------------------------
-st.title("Corporate Convenience")
-st.subheader("Workplace Request Management")
-
-st.write(
-    "Submit a workplace request and let the classifier "
-    "identify the department best suited to handle it."
-)
-
-st.divider()
+def extract_field(message, field):
+    """Extract a labelled field from the stored ticket message."""
+    pattern = rf"^{re.escape(field)}:\s*(.*)$"
+    for line in str(message or "").splitlines():
+        match = re.match(pattern, line, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 
-# -----------------------------
-# Submit a new request
-# -----------------------------
-st.header("Submit a Request")
+def normalize_ticket(row):
+    """Adapt existing database rows to the dashboard's expected format."""
+    data = row_to_dict(row)
 
-with st.form("request_form", clear_on_submit=True):
-    message = st.text_area(
-        "Describe your workplace request",
-        placeholder=(
-            "Example: I cannot connect to the office Wi-Fi."
+    ticket_id = (
+        data.get("ticket_id")
+        or data.get("id")
+        or data.get("ticketId")
+    )
+    message = (
+        data.get("message")
+        or data.get("description")
+        or data.get("request")
+        or ""
+    )
+
+    requester = data.get("requester") or extract_field(message, "Requester")
+    employee_department = (
+        data.get("employee_department")
+        or extract_field(message, "Employee department")
+    )
+    subject = data.get("subject") or extract_field(message, "Subject")
+    description = data.get("description") or extract_field(message, "Description")
+
+    if not description:
+        description = message
+
+    return {
+        "id": ticket_id,
+        "ticket_number": f"CC-{ticket_id}" if ticket_id is not None else "CC-New",
+        "requester": requester or "Not provided",
+        "employee_department": employee_department or "Not provided",
+        "subject": subject or "Support request",
+        "description": description,
+        "department": (
+            data.get("assigned_department")
+            or data.get("department")
+            or "Unassigned"
         ),
-        height=130,
-    )
-
-    submitted = st.form_submit_button(
-        "Classify and Submit Request",
-        type="primary",
-    )
-
-
-if submitted:
-    if not message.strip():
-        st.error("Please describe your request before submitting.")
-
-    else:
-        try:
-            department = predict_department(message)
-
-            # Save the request and its predicted department.
-            ticket = save_ticket(message, department)
-
-            st.session_state["last_ticket"] = ticket
-
-            st.success("Your request has been submitted successfully!")
-
-        except FileNotFoundError as error:
-            st.error(str(error))
-
-        except ValueError as error:
-            st.error(str(error))
-
-        except Exception as error:
-            st.error(
-                "The request could not be saved. "
-                "Please check the database configuration."
-            )
-            st.exception(error)
-
-
-# -----------------------------
-# Display the latest ticket
-# -----------------------------
-last_ticket = st.session_state.get("last_ticket")
-
-if last_ticket:
-    st.subheader("Your Submitted Ticket")
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Ticket ID",
-        last_ticket["ticket_id"],
-    )
-
-    col2.metric(
-        "Assigned Department",
-        last_ticket["department"],
-    )
-
-    col3.metric(
-        "Current Status",
-        last_ticket["status"],
-    )
-
-    st.write("**Request:**", last_ticket["message"])
-    st.write("**Created:**", last_ticket["created_at"])
-
-st.divider()
-
-
-# -----------------------------
-# View all tickets
-# -----------------------------
-st.header("All Requests")
-
-tickets = get_all_tickets()
-
-if tickets:
-    ticket_df = pd.DataFrame(tickets)
-
-    st.dataframe(
-        ticket_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.caption(f"Total tickets: {len(tickets)}")
-
-    # -------------------------
-    # Update ticket status
-    # -------------------------
-    st.subheader("Update Request Status")
-
-    ticket_options = {
-        ticket["ticket_id"]: (
-            f"Ticket #{ticket['ticket_id']} - "
-            f"{ticket['department']} - "
-            f"{ticket['status']}"
-        )
-        for ticket in tickets
+        "status": str(data.get("status") or "Open").title(),
+        "created_at": (
+            data.get("created_at")
+            or data.get("created")
+            or ""
+        ),
     }
 
-    selected_ticket_id = st.selectbox(
-        "Select a ticket",
-        options=list(ticket_options.keys()),
-        format_func=lambda ticket_id: ticket_options[ticket_id],
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+
+@app.route("/api/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/tickets", methods=["GET"])
+def list_tickets():
+    rows = get_all_tickets()
+    tickets = [normalize_ticket(row) for row in rows]
+    return jsonify({"tickets": tickets})
+
+
+@app.route("/api/tickets", methods=["POST"])
+def create_ticket():
+    data = request.get_json(silent=True) or {}
+
+    requester = str(data.get("requester", "")).strip()
+    employee_department = str(data.get("employee_department", "")).strip()
+    subject = str(data.get("subject", "")).strip()
+    description = str(data.get("description", "")).strip()
+
+    if not all([requester, employee_department, subject, description]):
+        return jsonify({
+            "error": "Please complete every ticket field."
+        }), 400
+
+    full_message = (
+        f"Requester: {requester}\n"
+        f"Employee department: {employee_department}\n"
+        f"Subject: {subject}\n"
+        f"Description: {description}"
     )
 
-    selected_ticket = next(
-        ticket
-        for ticket in tickets
-        if ticket["ticket_id"] == selected_ticket_id
+    try:
+        assigned_department = predict_department(full_message)
+        save_ticket(full_message, assigned_department)
+
+        rows = get_all_tickets()
+        tickets = [normalize_ticket(row) for row in rows]
+
+        # Return the latest saved ticket so the frontend can update immediately.
+        ticket = tickets[-1] if tickets else {
+            "id": None,
+            "ticket_number": "CC-New",
+            "requester": requester,
+            "employee_department": employee_department,
+            "subject": subject,
+            "description": description,
+            "department": assigned_department or "Unassigned",
+            "status": "Open",
+            "created_at": "",
+        }
+
+        return jsonify({"ticket": ticket}), 201
+
+    except Exception as error:
+        app.logger.exception("Unable to create ticket")
+        return jsonify({
+            "error": f"Unable to create ticket: {error}"
+        }), 500
+
+
+@app.route("/api/tickets/<int:ticket_id>", methods=["PATCH"])
+def change_ticket_status(ticket_id):
+    data = request.get_json(silent=True) or {}
+    status = str(data.get("status", "")).strip().title()
+
+    allowed_statuses = {"Open", "In Progress", "Resolved"}
+    if status not in allowed_statuses:
+        return jsonify({"error": "Invalid ticket status."}), 400
+
+    try:
+        update_ticket_status(ticket_id, status)
+        rows = get_all_tickets()
+
+        for row in rows:
+            ticket = normalize_ticket(row)
+            if str(ticket["id"]) == str(ticket_id):
+                ticket["status"] = status
+                return jsonify({"ticket": ticket})
+
+        return jsonify({"message": "Status updated."})
+
+    except Exception as error:
+        app.logger.exception("Unable to update ticket status")
+        return jsonify({
+            "error": f"Unable to update status: {error}"
+        }), 500
+
+
+@app.route("/api/tickets/export", methods=["GET"])
+def export_tickets():
+    rows = get_all_tickets()
+    tickets = [normalize_ticket(row) for row in rows]
+
+    output = io.StringIO()
+    fields = [
+        "ticket_number",
+        "requester",
+        "employee_department",
+        "subject",
+        "description",
+        "department",
+        "status",
+        "created_at",
+    ]
+
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(tickets)
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition":
+                "attachment; filename=corporate_convenience_tickets.csv"
+        },
     )
 
-    statuses = ["Open", "In Progress", "Resolved"]
 
-    current_status = selected_ticket["status"]
-
-    status_index = (
-        statuses.index(current_status)
-        if current_status in statuses
-        else 0
-    )
-
-    new_status = st.selectbox(
-        "New status",
-        options=statuses,
-        index=status_index,
-        key=f"status_{selected_ticket_id}",
-    )
-
-    if st.button("Save Status", type="secondary"):
-        try:
-            update_ticket_status(
-                selected_ticket_id,
-                new_status,
-            )
-
-            st.success(
-                f"Ticket #{selected_ticket_id} updated to "
-                f"{new_status}."
-            )
-
-            st.rerun()
-
-        except Exception as error:
-            st.error("Could not update the ticket status.")
-            st.exception(error)
-
-else:
-    st.info(
-        "No requests have been submitted yet. "
-        "Your tickets will appear here."
-    )
+if __name__ == "__main__":
+    init_db()
+    app.run(debug=True)
