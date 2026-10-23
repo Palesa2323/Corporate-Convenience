@@ -1,0 +1,273 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#397D78">
+    <meta name="description" content="Corporate Convenience smart ticket classification and department routing system">
+    <title>Corporate Convenience | Smart Ticket Classification</title>
+    <link rel="stylesheet" href="stylesheet.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+
+<header class="app-header">
+    <a href="#overview" class="brand">
+        <span class="brand-icon" aria-hidden="true">CC</span>
+        <span class="brand-copy">
+            <strong>Corporate Convenience</strong>
+            <small>Smart Ticket Classification</small>
+        </span>
+    </a>
+
+    <nav class="top-navigation" aria-label="Main navigation">
+        <a href="#overview" class="nav-link active">Overview</a>
+        <a href="#new-ticket" class="nav-link">New ticket</a>
+        <a href="#all-tickets" class="nav-link">All tickets</a>
+    </nav>
+
+    <span class="environment-label">
+        <span class="live-dot"></span> Support workspace
+    </span>
+</header>
+
+<main class="dashboard">
+
+    <!-- OVERVIEW -->
+    <section id="overview" class="page-section">
+        <div class="page-heading">
+            <div>
+                <span class="eyebrow">SUPPORT OPERATIONS</span>
+                <h1>Overview</h1>
+                <p class="subtitle">
+                    A central place to submit, classify and route employee
+                    support requests to the right department.
+                </p>
+            </div>
+
+            <button class="button button-primary" id="createTicketBtn">
+                + New ticket
+            </button>
+        </div>
+
+        <div class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon teal-icon" aria-hidden="true">▤</div>
+                <p>Total tickets</p>
+                <h2 id="totalCount">0</h2>
+                <span class="stat-note">All submitted requests</span>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue-icon" aria-hidden="true">◷</div>
+                <p>Open</p>
+                <h2 id="openCount">0</h2>
+                <span class="stat-note">Awaiting action</span>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon amber-icon" aria-hidden="true">↗</div>
+                <p>In progress</p>
+                <h2 id="progressCount">0</h2>
+                <span class="stat-note">Being addressed</span>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon green-icon" aria-hidden="true">✓</div>
+                <p>Resolved</p>
+                <h2 id="resolvedCount">0</h2>
+                <span class="stat-note">Completed requests</span>
+            </article>
+        </div>
+
+        <section class="panel department-panel">
+            <div class="section-heading">
+                <div>
+                    <h2>Tickets by department</h2>
+                    <p>See how requests are distributed across your organisation.</p>
+                </div>
+                <span class="subtle-tag">4 departments</span>
+            </div>
+
+            <div id="departmentBreakdown"></div>
+        </section>
+    </section>
+
+    <!-- NEW TICKET -->
+    <section id="new-ticket" class="page-section">
+        <div class="section-title">
+            <span class="eyebrow">REQUEST CENTRE</span>
+            <h2>Create a support ticket</h2>
+            <p>
+                Describe your issue naturally. The system will suggest
+                the department that should handle it.
+            </p>
+        </div>
+
+        <div class="panel form-panel">
+            <form id="ticketForm">
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="requester">Employee name</label>
+                        <input
+                            type="text"
+                            id="requester"
+                            name="requester"
+                            placeholder="Enter your name"
+                            maxlength="100"
+                            autocomplete="name"
+                            required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="employeeDepartment">
+                            Your department
+                        </label>
+                        <select id="employeeDepartment" required>
+                            <option value="">Select your department</option>
+                            <option value="Finance">Finance</option>
+                            <option value="Operations">Operations</option>
+                            <option value="IT Support">IT Support</option>
+                            <option value="Human Resources">Human Resources</option>
+                        </select>
+                        <small class="field-help">
+                            This is your department, not necessarily the
+                            department receiving the ticket.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="subject">Ticket subject</label>
+                    <input
+                        type="text"
+                        id="subject"
+                        placeholder="e.g. Office Wi-Fi connection problem"
+                        maxlength="160"
+                        required>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Describe your issue</label>
+                    <textarea
+                        id="description"
+                        rows="5"
+                        minlength="5"
+                        maxlength="3000"
+                        placeholder="Tell us what happened, what you need help with, and any relevant details..."
+                        required></textarea>
+
+                    <div class="field-footer">
+                        <span>Write in your own words. No technical terms required.</span>
+                        <span id="charCount">0 / 3000</span>
+                    </div>
+                </div>
+
+                <!-- Live department recommendation -->
+                <div id="routingPreview" class="routing-preview" aria-live="polite">
+                    <div class="routing-icon" aria-hidden="true">✳</div>
+                    <div class="routing-copy">
+                        <strong id="routingTitle">Smart department routing</strong>
+                        <p id="routingMessage">
+                            Your recommended department will appear here as
+                            you describe your issue.
+                        </p>
+                    </div>
+                    <span id="routingBadge" class="routing-badge">Waiting</span>
+                </div>
+
+                <div id="reviewNotice" class="review-notice" hidden>
+                    The suggested department is uncertain. Please review
+                    the routing recommendation before submitting.
+                </div>
+
+                <div class="form-actions">
+                    <button type="reset" class="button button-secondary">
+                        Clear form
+                    </button>
+                    <button type="submit" class="button button-primary">
+                        Submit ticket →
+                    </button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <!-- ALL TICKETS -->
+    <section id="all-tickets" class="page-section">
+        <div class="section-title">
+            <span class="eyebrow">TICKET MANAGEMENT</span>
+            <h2>All tickets</h2>
+            <p>Search requests, check their assigned department and update progress.</p>
+        </div>
+
+        <div class="panel tickets-panel">
+            <div class="table-toolbar">
+                <input
+                    type="search"
+                    id="searchInput"
+                    placeholder="Search tickets, subjects or employees..."
+                    aria-label="Search tickets">
+
+                <select id="departmentFilter" aria-label="Filter by assigned department">
+                    <option value="All">All departments</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Operations">Operations</option>
+                    <option value="IT Support">IT Support</option>
+                    <option value="Human Resources">Human Resources</option>
+                    <option value="Needs Review">Needs review</option>
+                </select>
+
+                <select id="statusFilter" aria-label="Filter by ticket status">
+                    <option value="All">All statuses</option>
+                    <option value="Open">Open</option>
+                    <option value="In Progress">In progress</option>
+                    <option value="Resolved">Resolved</option>
+                </select>
+
+                <button type="button" class="button button-secondary" id="exportBtn">
+                    Export CSV
+                </button>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Subject</th>
+                            <th>Assigned department</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ticketTableBody"></tbody>
+                </table>
+
+                <div id="emptyState" class="empty-state" hidden>
+                    <div class="empty-icon">▤</div>
+                    <h3>No tickets found</h3>
+                    <p>Try a different search or create a new support ticket.</p>
+                </div>
+            </div>
+
+            <div class="table-footer">
+                <span id="ticketCountLabel">0 tickets</span>
+                <span>Corporate Convenience · Smart Support</span>
+            </div>
+        </div>
+    </section>
+
+    <footer class="page-footer">
+        <span>© 2026 Corporate Convenience</span>
+        <span>Smart Ticket Classification System · Prototype</span>
+    </footer>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+</body>
+</html>
