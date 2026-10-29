@@ -79,6 +79,43 @@ def analyse_message(message, tone="Formal"):
         "requires_human_review": priority == "Urgent",
     }
 
+def generate_follow_up(previous_message, new_message, department,
+                       tone="Formal"):
+    """Generate a template-based reply using conversation context."""
+
+    if not new_message or not new_message.strip():
+        raise ValueError("Please enter a follow-up message.")
+
+    follow_up = new_message.strip().lower()
+
+    # Keep the original issue in context for laptop/security cases.
+    if department == "IT" and any(
+        phrase in previous_message.lower()
+        for phrase in URGENT_PHRASES
+    ):
+        if any(word in follow_up for word in [
+            "who", "contact", "call", "help", "where"
+        ]):
+            return (
+                "Please contact your organisation's IT Support team "
+                "through an approved alternative device or channel. "
+                "Continue following the original safety instruction "
+                "and wait for IT guidance."
+            )
+
+        return (
+            "Thank you for the update. Your original laptop/security "
+            "issue remains flagged for urgent IT review. Please follow "
+            "the safety instruction and wait for IT Support guidance."
+        )
+
+    return (
+        f"Thank you for your follow-up regarding: "
+        f"'{previous_message}'. Your message has been noted for "
+        f"{department} support. A support agent can assist with "
+        f"your additional details."
+    )
+
 
 if __name__ == "__main__":
     message = input("Enter an employee support message: ")
