@@ -4,7 +4,7 @@ import hmac
 import secrets
 import sqlite3
 
-from database import get_connection
+from backend.database import get_connection
 
 
 def hash_password(password):

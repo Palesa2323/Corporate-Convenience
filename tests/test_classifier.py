@@ -1,5 +1,5 @@
 
-from classifier import predict_department
+from backend.classifier import predict_department
 
 test_cases = [
     ("My salary has not been paid.", "Finance"),

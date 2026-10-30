@@ -1,15 +1,3 @@
-"""
-Corporate Convenience — Member 1: Machine-learning model training.
-
-Usage:
-    python train_model.py
-
-Input:
-    tickets.csv with columns: request_text, department
-
-Output:
-    model.joblib (a saved scikit-learn Pipeline containing TF-IDF + Logistic Regression)
-"""
 
 from pathlib import Path
 import sys
@@ -22,9 +10,10 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "tickets.csv"
-MODEL_PATH = BASE_DIR / "model.joblib"
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+DATA_PATH = BASE_DIR / "data" / "tickets.csv"
+MODEL_PATH = BASE_DIR / "models" / "model.joblib"
 
 REQUIRED_COLUMNS = {"request_text", "department"}
 EXPECTED_LABELS = {"HR", "IT", "Finance", "Operations"}
@@ -118,7 +107,7 @@ def main() -> int:
     model.fit(data["request_text"], data["department"])
     joblib.dump(model, MODEL_PATH)
 
-    print(f"\nSaved trained pipeline to: {MODEL_PATH.name}")
+    print(f"\nSaved trained pipeline to: {MODEL_PATH}")
     print("Note: this small demonstration dataset is not sufficient to prove production-level accuracy.")
 
     return 0

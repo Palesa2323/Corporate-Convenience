@@ -7,7 +7,7 @@ import joblib
 
 # Locate the trained model relative to this file.
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "model.joblib"
+MODEL_PATH = BASE_DIR.parent / "models" / "model.joblib"
 
 
 # Clear department-specific phrases.

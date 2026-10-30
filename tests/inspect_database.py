@@ -1,4 +1,4 @@
-from database import get_connection, DATABASE_PATH, init_db
+from backend.database import get_connection, DATABASE_PATH, init_db
 
 init_db()
 

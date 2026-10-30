@@ -1,12 +1,12 @@
 
 from flask import Flask, jsonify, render_template, request, Response
-from database import (
+from backend.database import (
     init_db,
     save_ticket,
     get_all_tickets,
     update_ticket_status,
 )
-from classifier import predict_department
+from backend.classifier import predict_department
 import csv
 import io
 import re

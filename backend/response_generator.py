@@ -1,6 +1,6 @@
 
 
-from classifier import predict_department
+from backend.classifier import predict_department
 
 
 URGENT_PHRASES = [

@@ -1,5 +1,5 @@
 
-from authy import register_employee, authenticate_employee
+from backend.authy import register_employee, authenticate_employee
 
 # Create a test employee
 try:

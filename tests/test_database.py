@@ -1,5 +1,5 @@
 
-from database import save_ticket, get_ticket, get_all_tickets
+from backend.database import save_ticket, get_ticket, get_all_tickets
 
 # Test saving a ticket
 ticket = save_ticket(

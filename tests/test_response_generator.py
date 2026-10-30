@@ -1,6 +1,6 @@
 
 import unittest
-from response_generator import analyse_message
+from backend.response_generator import analyse_message
 
 
 class TestResponseGenerator(unittest.TestCase):

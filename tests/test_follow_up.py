@@ -1,6 +1,6 @@
 
 import unittest
-from response_generator import generate_follow_up
+from backend.response_generator import generate_follow_up
 
 
 class TestFollowUp(unittest.TestCase):

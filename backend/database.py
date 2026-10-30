@@ -4,16 +4,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 # Store the database in the same folder as this file.
-BASE_DIR = Path(__file__).resolve().parent
+# Store the database in the main project folder.
+BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "tickets.db"
-
 
 def get_connection():
     """Create a connection to the SQLite database."""
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
-
 
 def init_db():
     """Create the required database tables if they do not exist."""
