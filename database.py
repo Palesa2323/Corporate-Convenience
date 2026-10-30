@@ -15,9 +15,12 @@ def get_connection():
     return connection
 
 
+
 def init_db():
-    """Create the tickets table if it does not exist."""
+    """Create the required database tables if they do not exist."""
+
     with get_connection() as connection:
+
         connection.execute("""
             CREATE TABLE IF NOT EXISTS tickets (
                 ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +31,15 @@ def init_db():
             )
         """)
 
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                employee_id TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (
+                    role IN ('Employee', 'Support Staff', 'Admin')
+                )
+            )
+        """)
 
 
 def save_ticket(message, department):
