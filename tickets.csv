@@ -1,3 +1,4 @@
+
 request_text,department
 I need to apply for annual leave.,HR
 How many sick leave days do I have available?,HR
@@ -19,6 +20,10 @@ I want to request a transfer to another department.,HR
 Where can I find the employee handbook?,HR
 I need help with my employee onboarding paperwork.,HR
 How do I request an employment reference letter?,HR
+I want to apply for maternity leave.,HR
+I need help understanding my employment benefits.,HR
+I want to update my employee personal information.,HR
+How do I apply for family responsibility leave?,HR
 I cannot reset my computer password.,IT
 My laptop will not connect to the company Wi-Fi.,IT
 I cannot log in to my company email.,IT
@@ -59,6 +64,21 @@ Can I get an update on an outstanding vendor payment?,Finance
 I need to correct the cost centre on an expense submission.,Finance
 The supplier payment was made to the wrong account.,Finance
 Where should I send supporting documents for an expense claim?,Finance
+My monthly salary has not been paid.,Finance
+I have not received my salary in my bank account.,Finance
+There is an error on my payslip.,Finance
+My salary payment is missing.,Finance
+I need a copy of my monthly payslip.,Finance
+My overtime payment has not been included in my salary.,Finance
+I want to query an incorrect salary deduction.,Finance
+Can you confirm when my salary will be paid?,Finance
+My bank account details for salary payment need correction.,Finance
+I have a question about my tax deductions.,Finance
+Please investigate my outstanding salary payment.,Finance
+My bonus payment has not reflected in my account.,Finance
+My payroll amount is incorrect.,Finance
+I have not received my monthly wages.,Finance
+My salary statement contains an incorrect amount.,Finance
 The office air conditioner is broken.,Operations
 We have run out of printer paper and stationery.,Operations
 The meeting room needs to be prepared for a workshop.,Operations
