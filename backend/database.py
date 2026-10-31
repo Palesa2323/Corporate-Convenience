@@ -2,17 +2,42 @@
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
+from contextlib import contextmanager
 
-# Store the database in the same folder as this file.
 # Store the database in the main project folder.
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "tickets.db"
 
+
+@contextmanager
 def get_connection():
-    """Create a connection to the SQLite database."""
+    """Create and safely close a SQLite database connection."""
+
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
-    return connection
+
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
+def get_employee(employee_id):
+    """Retrieve an employee using their employee ID."""
+
+    if not employee_id or not employee_id.strip():
+        raise ValueError("Employee ID is required.")
+
+    with get_connection() as connection:
+        row = connection.execute("""
+            SELECT employee_id, role, department
+            FROM employees
+            WHERE employee_id = ?
+        """, (employee_id.strip(),)).fetchone()
+
+    return dict(row) if row else None
+
 
 def init_db():
     """Create the required database tables if they do not exist."""
@@ -35,9 +60,24 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (
                     role IN ('Employee', 'Support Staff', 'Admin')
-                )
+                ),
+                department TEXT
             )
         """)
+
+        # Check whether the employees table needs the department column.
+        employee_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(employees)"
+            ).fetchall()
+        }
+
+        if "department" not in employee_columns:
+            connection.execute("""
+                ALTER TABLE employees
+                ADD COLUMN department TEXT
+            """)
 
         # Add employee ownership to existing tickets.
         ticket_columns = {
@@ -57,6 +97,7 @@ def init_db():
 
 def save_ticket(message, department):
     """Save a ticket and return its complete record."""
+
     message = message.strip()
 
     department_map = {
@@ -88,6 +129,7 @@ def save_ticket(message, department):
         ticket_id = cursor.lastrowid
 
     return get_ticket(ticket_id)
+
 
 def save_employee_ticket(message, department, employee_id):
     """Save a ticket linked to the employee who submitted it."""
@@ -136,6 +178,7 @@ def save_employee_ticket(message, department, employee_id):
 
 def get_ticket(ticket_id):
     """Retrieve a ticket using its ID."""
+
     with get_connection() as connection:
         row = connection.execute("""
             SELECT ticket_id, message, department, created_at,
@@ -149,6 +192,7 @@ def get_ticket(ticket_id):
 
 def get_all_tickets():
     """Retrieve all tickets, newest first."""
+
     with get_connection() as connection:
         rows = connection.execute("""
             SELECT ticket_id, message, department, created_at,
@@ -177,8 +221,10 @@ def get_employee_tickets(employee_id):
 
     return [dict(row) for row in rows]
 
+
 def update_ticket_status(ticket_id, status):
     """Update a ticket's status."""
+
     allowed_statuses = {"Open", "In Progress", "Resolved"}
 
     if status not in allowed_statuses:
