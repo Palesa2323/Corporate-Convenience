@@ -1,7 +1,24 @@
 
+import os
+import logging
+from pathlib import Path
+
+from dotenv import load_dotenv
+from google import genai
 
 from backend.classifier import predict_department
 
+
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
+GEMINI_MODEL = "gemini-3.8-flash"
+
+logger = logging.getLogger(__name__)
 
 URGENT_PHRASES = [
     "do not use your laptop",
@@ -16,8 +33,46 @@ URGENT_PHRASES = [
 ]
 
 
+# --------------------------------------------------
+# GEMINI CONNECTION
+# --------------------------------------------------
+
+def get_gemini_client():
+    """Create a Gemini client using the stored API key."""
+
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        raise ValueError("Gemini API key was not found.")
+
+    return genai.Client(api_key=api_key)
+
+
+
+def generate_with_gemini(prompt):
+    """Generate a response using Google's Gemini Interactions API."""
+
+    client = get_gemini_client()
+
+    interaction = client.interactions.create(
+        model="gemini-3.8-flash",
+        input=prompt,
+        store=False
+    )
+
+    if not interaction.output_text:
+        raise RuntimeError("Gemini returned an empty response.")
+
+    return interaction.output_text.strip()
+
+
+# --------------------------------------------------
+# PRIORITY DETECTION
+# --------------------------------------------------
+
 def detect_priority(message):
     """Identify requests that need urgent attention."""
+
     text = message.lower()
 
     if any(phrase in text for phrase in URGENT_PHRASES):
@@ -26,11 +81,17 @@ def detect_priority(message):
     return "Normal"
 
 
+# --------------------------------------------------
+# ISSUE TYPE DETECTION
+# --------------------------------------------------
+
 def detect_issue_type(message, department):
     """Identify the specific type of employee request."""
+
     text = message.lower()
 
     if department == "Finance":
+
         if any(word in text for word in [
             "salary", "payslip", "pay slip", "payroll",
             "wages", "overtime", "bonus", "salary payment"
@@ -53,6 +114,7 @@ def detect_issue_type(message, department):
             return "Tax and Deductions"
 
     elif department == "HR":
+
         if any(word in text for word in [
             "annual leave", "sick leave", "maternity leave",
             "parental leave", "family responsibility leave"
@@ -70,6 +132,7 @@ def detect_issue_type(message, department):
             return "Employee Benefits"
 
     elif department == "IT":
+
         if any(word in text for word in [
             "password", "login", "log in", "account locked"
         ]):
@@ -91,6 +154,7 @@ def detect_issue_type(message, department):
             return "Computer and Hardware"
 
     elif department == "Operations":
+
         if any(word in text for word in [
             "air conditioner", "air conditioning", "lights",
             "leak", "lift", "generator"
@@ -111,10 +175,145 @@ def detect_issue_type(message, department):
     return "General Request"
 
 
+# --------------------------------------------------
+# GEMINI RESPONSE GENERATION
+# --------------------------------------------------
+
+def generate_ai_response(
+    message,
+    department,
+    issue_type,
+    tone="Formal",
+    priority="Normal"
+):
+    """
+    Generate a professional workplace response using Gemini.
+    """
+
+    tone_instructions = {
+        "Formal": (
+            "Use professional, respectful and clear business language."
+        ),
+        "Friendly": (
+            "Use a warm, approachable and helpful tone while remaining "
+            "professional."
+        ),
+        "Urgent": (
+            "Use concise, direct language that communicates the need "
+            "for prompt attention without creating unnecessary panic."
+        )
+    }
+
+    tone_instruction = tone_instructions.get(
+        tone,
+        tone_instructions["Formal"]
+    )
+
+    if priority == "Urgent":
+        safety_instruction = """
+        IMPORTANT SAFETY REQUIREMENTS:
+
+        This ticket has been flagged as urgent.
+
+        If it concerns a possible cybersecurity incident:
+        - Tell the employee not to continue using the potentially
+          compromised device.
+        - Tell them not to restart or troubleshoot that device.
+        - Direct them to contact IT Support through an approved
+          alternative device or communication channel.
+        - Never ask the employee to share their password.
+        - Do not claim that the security issue has been resolved.
+
+        Make it clear that a human support agent must review the case.
+        """
+    else:
+        safety_instruction = """
+        No special urgent safety instruction has been triggered.
+        """
+
+    prompt = f"""
+    You are the AI communication assistant for Corporate Convenience,
+    an internal workplace ticket management system.
+
+    Your responsibility is to draft a helpful response to an employee
+    who has submitted a workplace support request.
+
+    TICKET INFORMATION:
+
+    Employee message:
+    {message}
+
+    Responsible department:
+    {department}
+
+    Issue type:
+    {issue_type}
+
+    Priority:
+    {priority}
+
+    Required response tone:
+    {tone}
+
+    TONE INSTRUCTIONS:
+    {tone_instruction}
+
+    RESPONSE REQUIREMENTS:
+
+    1. Respond directly to the employee's actual concern.
+    2. Acknowledge the issue and explain the appropriate next step.
+    3. Ask for relevant missing information only when necessary.
+    4. Keep the response clear, concise and professional.
+    5. Make the response specific to the responsible department.
+    6. Do not simply repeat the employee's message.
+    7. Do not invent company policies, procedures, deadlines,
+       payment dates or contact details.
+    8. Do not claim that a ticket has been resolved or approved.
+    9. Never request passwords, authentication codes or private
+       login credentials.
+    10. Do not provide unsupported legal, financial or HR advice.
+    11. Return only the response intended for the employee.
+    12. Do not include analysis, headings or explanations about AI.
+
+    {safety_instruction}
+
+    Generate the employee-facing response now.
+    """
+
+    return generate_with_gemini(prompt)
+
+
+# --------------------------------------------------
+# FALLBACK RESPONSE TEMPLATES
+# --------------------------------------------------
+
 def generate_response(message, department, tone="Formal",
                       priority="Normal"):
-    """Generate a department-specific draft response."""
+    """
+    Generate a Gemini response, falling back to existing templates
+    if the Gemini service is unavailable.
+    """
 
+    issue_type = detect_issue_type(message, department)
+
+    # Try actual Generative AI first.
+    try:
+        return generate_ai_response(
+            message=message,
+            department=department,
+            issue_type=issue_type,
+            tone=tone,
+            priority=priority
+        )
+
+    except Exception as error:
+        logger.warning(
+            "Gemini response generation failed. "
+            "Using fallback templates. Error: %s",
+            error
+        )
+
+    # Existing template-based fallback.
     if priority == "Urgent":
         return (
             "Urgent IT Support Notice: Please follow the instruction "
@@ -125,8 +324,6 @@ def generate_response(message, department, tone="Formal",
             "Support gave you this instruction or whether you saw "
             "a security warning."
         )
-
-    issue_type = detect_issue_type(message, department)
 
     responses = {
         "Finance": {
@@ -267,11 +464,22 @@ def generate_response(message, department, tone="Formal",
     return reply
 
 
+# --------------------------------------------------
+# MAIN TICKET ANALYSIS
+# --------------------------------------------------
+
 def analyse_message(message, tone="Formal"):
     """Classify an employee request and generate a draft response."""
 
     if not isinstance(message, str) or not message.strip():
         raise ValueError("Please enter an employee support message.")
+
+    allowed_tones = {"Formal", "Friendly", "Urgent"}
+
+    if tone not in allowed_tones:
+        raise ValueError(
+            "Tone must be Formal, Friendly or Urgent."
+        )
 
     message = message.strip()
 
@@ -283,22 +491,31 @@ def analyse_message(message, tone="Formal"):
 
     issue_type = detect_issue_type(message, department)
 
+    draft_response = generate_response(
+        message=message,
+        department=department,
+        tone=tone,
+        priority=priority
+    )
+
     return {
         "employee_message": message,
         "predicted_department": department,
         "issue_type": issue_type,
         "priority": priority,
         "tone": tone,
-        "draft_response": generate_response(
-            message, department, tone, priority
-        ),
+        "draft_response": draft_response,
         "requires_human_review": priority == "Urgent",
     }
 
 
+# --------------------------------------------------
+# FOLLOW-UP RESPONSE GENERATION
+# --------------------------------------------------
+
 def generate_follow_up(previous_message, new_message, department,
                        tone="Formal"):
-    """Generate a template-based reply using conversation context."""
+    """Generate a context-aware Gemini follow-up response."""
 
     if not isinstance(new_message, str) or not new_message.strip():
         raise ValueError("Please enter a follow-up message.")
@@ -306,13 +523,82 @@ def generate_follow_up(previous_message, new_message, department,
     if not isinstance(previous_message, str):
         raise ValueError("The original message is required.")
 
-    follow_up = new_message.strip().lower()
+    if department not in {"HR", "IT", "Finance", "Operations"}:
+        raise ValueError("Invalid support department.")
 
-    if department == "IT" and any(
-        phrase in previous_message.lower()
-        for phrase in URGENT_PHRASES
-    ):
-        if any(word in follow_up for word in [
+    if tone not in {"Formal", "Friendly", "Urgent"}:
+        raise ValueError(
+            "Tone must be Formal, Friendly or Urgent."
+        )
+
+    previous_message = previous_message.strip()
+    new_message = new_message.strip()
+
+    priority = detect_priority(previous_message)
+
+    if department == "IT" and priority == "Urgent":
+        safety_context = """
+        This is an ongoing urgent IT security-related case.
+
+        Maintain the original safety instruction.
+        Do not advise the employee to restart or troubleshoot
+        a potentially compromised device.
+        Direct them to approved alternative IT communication channels.
+        A human support agent must review the case.
+        """
+    else:
+        safety_context = """
+        Continue assisting with the original workplace support issue.
+        Do not claim that the issue has been resolved.
+        """
+
+    prompt = f"""
+    You are the AI communication assistant for Corporate Convenience.
+
+    An employee has sent a follow-up to an existing support ticket.
+
+    Original employee message:
+    {previous_message}
+
+    New follow-up message:
+    {new_message}
+
+    Responsible department:
+    {department}
+
+    Required tone:
+    {tone}
+
+    Respond to the employee's latest message while considering
+    the original conversation.
+
+    Requirements:
+    - Acknowledge the new information.
+    - Maintain context from the original request.
+    - Provide a useful next step.
+    - Do not invent company policies or procedures.
+    - Do not claim that the ticket is resolved.
+    - Never request passwords or authentication codes.
+    - Keep the response concise and professional.
+    - Return only the employee-facing response.
+
+    {safety_context}
+    """
+
+    try:
+        return generate_with_gemini(prompt)
+
+    except Exception as error:
+        logger.warning(
+            "Gemini follow-up generation failed. "
+            "Using fallback response. Error: %s",
+            error
+        )
+
+    # Preserve the existing urgent IT fallback.
+    if department == "IT" and priority == "Urgent":
+
+        if any(word in new_message.lower() for word in [
             "who", "contact", "call", "help", "where"
         ]):
             return (
@@ -337,9 +623,36 @@ def generate_follow_up(previous_message, new_message, department,
     )
 
 
-if __name__ == "__main__":
-    message = input("Enter an employee support message: ")
-    result = analyse_message(message)
+# --------------------------------------------------
+# LOCAL TESTING
+# --------------------------------------------------
 
-    for key, value in result.items():
-        print(f"{key}: {value}")
+if __name__ == "__main__":
+
+    message = input("Enter an employee support message: ")
+
+    print("\nChoose response tone:")
+    print("1. Formal")
+    print("2. Friendly")
+    print("3. Urgent")
+
+    choice = input("Enter choice (1-3): ")
+
+    tones = {
+        "1": "Formal",
+        "2": "Friendly",
+        "3": "Urgent"
+    }
+
+    selected_tone = tones.get(choice, "Formal")
+
+    try:
+        result = analyse_message(message, selected_tone)
+
+        print("\n--- TICKET ANALYSIS ---")
+
+        for key, value in result.items():
+            print(f"{key}: {value}")
+
+    except Exception as error:
+        print(f"\nError: {error}")

@@ -1,5 +1,16 @@
 
-from flask import Flask, jsonify, render_template, request, Response
+from flask import (
+    Flask, jsonify, render_template, request,
+    Response, session
+)
+
+from dotenv import load_dotenv
+import os
+
+from backend.authy import (
+    register_employee,
+    authenticate_employee
+)
 from backend.database import (
     init_db,
     save_ticket,
@@ -11,7 +22,24 @@ import csv
 import io
 import re
 
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+
+load_dotenv(BASE_DIR / ".env", override=True)
+
 app = Flask(__name__)
+
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+
+if not app.secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY is missing from .env")
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False
+)
 
 
 def row_to_dict(row):
@@ -85,6 +113,76 @@ def normalize_ticket(row):
 def home():
     return render_template("index.html")
 
+@app.route("/api/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True) or {}
+
+    employee_id = str(data.get("employee_id", "")).strip()
+    password = str(data.get("password", ""))
+
+    try:
+        register_employee(employee_id, password)
+
+        return jsonify({
+            "message": "Registration successful. You can now log in."
+        }), 201
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Registration failed")
+
+        return jsonify({
+            "error": "Unable to complete registration."
+        }), 500
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+
+    employee_id = str(data.get("employee_id", "")).strip()
+    password = str(data.get("password", ""))
+
+    employee = authenticate_employee(employee_id, password)
+
+    if employee is None:
+        return jsonify({
+            "error": "Invalid employee ID or password."
+        }), 401
+
+    session.clear()
+
+    session["employee_id"] = employee["employee_id"]
+    session["role"] = employee["role"]
+
+    return jsonify({
+        "message": "Login successful.",
+        "employee": employee
+    })
+
+@app.route("/api/session", methods=["GET"])
+def check_session():
+    if "employee_id" not in session:
+        return jsonify({
+            "authenticated": False
+        }), 401
+
+    return jsonify({
+        "authenticated": True,
+        "employee": {
+            "employee_id": session["employee_id"],
+            "role": session["role"]
+        }
+    })
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    session.clear()
+
+    return jsonify({
+        "message": "Logged out successfully."
+    })
 
 @app.route("/api/health")
 def health():
