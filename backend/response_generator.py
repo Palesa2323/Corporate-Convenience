@@ -111,6 +111,34 @@ def detect_issue_type(message, department):
     return "General Request"
 
 
+def generate_acknowledgement(department, priority):
+    """Confirm that the employee's complaint has been received."""
+
+    department_names = {
+        "IT": "IT Support Team",
+        "HR": "Human Resources Team",
+        "Finance": "Finance Team",
+        "Operations": "Operations Team"
+    }
+
+    team_name = department_names.get(
+        department,
+        "relevant Support Team"
+    )
+
+    return (
+        "Dear Employee,\n\n"
+        "Thank you for contacting Corporate Convenience.\n\n"
+        "We confirm that we have successfully received your complaint. "
+        f"Your complaint has been forwarded to the {team_name} "
+        "for review.\n\n"
+        f"Your complaint has been recorded as {priority} priority. "
+        "The relevant team will review your complaint and provide "
+        "an update.\n\n"
+        "Thank you for your patience.\n\n"
+        "Corporate Convenience Support Team"
+    )
+
 def generate_response(message, department, tone="Formal",
                       priority="Normal"):
     """Generate a department-specific draft response."""
@@ -278,8 +306,7 @@ def analyse_message(message, tone="Formal"):
     department = predict_department(message)
     priority = detect_priority(message)
 
-    if priority == "Urgent":
-        department = "IT"
+    acknowledgement = generate_acknowledgement(department, priority)
 
     issue_type = detect_issue_type(message, department)
 
@@ -289,6 +316,7 @@ def analyse_message(message, tone="Formal"):
         "issue_type": issue_type,
         "priority": priority,
         "tone": tone,
+        "acknowledgement": acknowledgement,
         "draft_response": generate_response(
             message, department, tone, priority
         ),
