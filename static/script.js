@@ -450,4 +450,43 @@ elements.ticketsTableBody.addEventListener("change", event => {
     updateTicketStatus(select.dataset.ticketId, select.value);
 });
 
-loadTickets();
+document.getElementById("logoutButton").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.href = "/login";
+});
+
+async function checkSession() {
+    try {
+        const response = await fetch("/api/session");
+        const data = await response.json();
+
+        if (!response.ok || !data.authenticated) {
+            window.location.href = "/login";
+            return false;
+        }
+
+        const { employee_id, role, department } = data.employee;
+        const departmentLabels = {
+            HR: "Human Resources",
+            IT: "IT Support",
+            Finance: "Finance",
+            Operations: "Operations"
+        };
+
+        document.getElementById("userAvatar").textContent =
+            employee_id.slice(0, 2).toUpperCase();
+        document.getElementById("userId").textContent = employee_id;
+        document.getElementById("userRole").textContent =
+            departmentLabels[department] || department || role;
+
+        return true;
+
+    } catch {
+        window.location.href = "/login";
+        return false;
+    }
+}
+
+checkSession().then(authenticated => {
+    if (authenticated) loadTickets();
+});

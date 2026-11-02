@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corporate Convenience | Sign In</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet.css') }}">
+</head>
+<body>
+    <div class="auth-shell">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <span class="brand-mark">CC</span>
+                <div>
+                    <strong>Corporate Convenience</strong>
+                    <small>Employee Support Workspace</small>
+                </div>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="loginTab">Sign in</button>
+                <button class="auth-tab" id="registerTab">Register</button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <form id="loginForm" class="auth-form">
+                <div class="form-group">
+                    <label for="loginId">Employee ID</label>
+                    <input id="loginId" type="text" placeholder="e.g. EMP001" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input id="loginPassword" type="password" placeholder="Enter your password" required>
+                </div>
+                <p id="loginMessage" class="auth-message" role="status"></p>
+                <button type="submit" class="button button-primary button-full">
+                    Sign in
+                </button>
+            </form>
+
+            <!-- REGISTER FORM -->
+            <form id="registerForm" class="auth-form" hidden>
+                <div class="form-group">
+                    <label for="registerId">Employee ID</label>
+                    <input id="registerId" type="text" placeholder="e.g. EMP001" required>
+                </div>
+                <div class="form-group">
+                    <label for="registerDepartment">Department</label>
+                    <select id="registerDepartment" required>
+                        <option value="">Select your department</option>
+                        <option value="HR">Human Resources</option>
+                        <option value="IT">IT Support</option>
+                        <option value="Finance">Finance</option>
+                        <option value="Operations">Operations</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="registerPassword">Password</label>
+                    <input id="registerPassword" type="password" placeholder="Create a password" required>
+                </div>
+                <div class="form-group">
+                    <label for="registerConfirm">Confirm password</label>
+                    <input id="registerConfirm" type="password" placeholder="Repeat your password" required>
+                </div>
+                <p id="registerMessage" class="auth-message" role="status"></p>
+                <button type="submit" class="button button-primary button-full">
+                    Create account
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='auth.js') }}" defer></script>
+</body>
+</html>

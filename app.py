@@ -155,6 +155,7 @@ def login():
 
     session["employee_id"] = employee["employee_id"]
     session["role"] = employee["role"]
+    session["department"] = employee["department"]
 
     return jsonify({
         "message": "Login successful.",
@@ -172,7 +173,8 @@ def check_session():
         "authenticated": True,
         "employee": {
             "employee_id": session["employee_id"],
-            "role": session["role"]
+            "role": session["role"],
+            "department": session.get("department")
         }
     })
 
