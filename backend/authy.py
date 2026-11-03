@@ -158,6 +158,7 @@ def provision_employee_account(
         raise ValueError("This employee ID is already registered.")
 
 
+
 def authenticate_employee(employee_id, password):
     """Verify credentials and return account details."""
 
