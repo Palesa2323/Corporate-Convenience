@@ -10,11 +10,20 @@ URGENT_PHRASES = [
     "stop using your laptop",
     "security warning",
     "suspicious activity",
-    "account compromised",
+    "account has been compromised",
+    "my account has been compromised",
     "possible virus",
     "hacked",
+   
 ]
-
+HIGH_PHRASES = [
+    "salary not paid",
+    "salary has not been paid",
+    "salary has not been received",
+    "not received my salary",
+    "missing salary payment",
+    "payroll problem",
+]
 
 def detect_priority(message):
     """Identify requests that need urgent attention."""
@@ -22,6 +31,9 @@ def detect_priority(message):
 
     if any(phrase in text for phrase in URGENT_PHRASES):
         return "Urgent"
+
+    if any(phrase in text for phrase in HIGH_PHRASES):
+        return "High"  
 
     return "Normal"
 
@@ -304,6 +316,22 @@ def analyse_message(message, tone="Formal"):
     message = message.strip()
 
     department = predict_department(message)
+    # Send cybersecurity complaints to IT Support.
+    security_phrases = [
+    "account compromised",
+    "account has been compromised",
+    "suspicious activity",
+    "possible virus",
+    "hacked",
+    "security breach",
+    "ransomware",
+    "data breach"
+]
+    message_lower = message.lower()
+
+    if any(phrase in message_lower for phrase in security_phrases):
+        department = "IT"
+
     priority = detect_priority(message)
 
     acknowledgement = generate_acknowledgement(department, priority)
@@ -321,9 +349,7 @@ def analyse_message(message, tone="Formal"):
             message, department, tone, priority
         ),
         "requires_human_review": priority == "Urgent",
-    }
-
-
+    } 
 def generate_follow_up(previous_message, new_message, department,
                        tone="Formal"):
     """Generate a template-based reply using conversation context."""

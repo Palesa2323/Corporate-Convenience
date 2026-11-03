@@ -20,13 +20,14 @@ def init_db():
     with get_connection() as connection:
 
         connection.execute("""
-            CREATE TABLE IF NOT EXISTS tickets (
-                ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message TEXT NOT NULL,
-                department TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'Open'
-            )
+          CREATE TABLE IF NOT EXISTS tickets (
+    ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    department TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Open',
+    priority TEXT NOT NULL DEFAULT 'Normal'
+) 
         """)
 
         connection.execute("""
@@ -54,6 +55,11 @@ def init_db():
                 REFERENCES employees(employee_id)
             """)
 
+        if "priority" not in ticket_columns:
+         connection.execute("""
+        ALTER TABLE tickets
+        ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'
+    """)
 
 def save_ticket(message, department):
     """Save a ticket and return its complete record."""
@@ -89,7 +95,7 @@ def save_ticket(message, department):
 
     return get_ticket(ticket_id)
 
-def save_employee_ticket(message, department, employee_id):
+def save_employee_ticket(message, department, employee_id, priority="Normal"):
     """Save a ticket linked to the employee who submitted it."""
 
     if not employee_id or not employee_id.strip():
@@ -116,20 +122,22 @@ def save_employee_ticket(message, department, employee_id):
     created_at = datetime.now(timezone.utc).isoformat()
 
     with get_connection() as connection:
-        cursor = connection.execute("""
+               cursor = connection.execute("""
             INSERT INTO tickets (
-                message, department, created_at, status, employee_id
+                message, department, created_at, status,
+                employee_id, priority
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             message,
             department,
             created_at,
             "Open",
-            employee_id.strip()
+            employee_id.strip(),
+            priority
         ))
 
-        ticket_id = cursor.lastrowid
+    ticket_id = cursor.lastrowid
 
     return get_ticket(ticket_id)
 
@@ -139,7 +147,7 @@ def get_ticket(ticket_id):
     with get_connection() as connection:
         row = connection.execute("""
             SELECT ticket_id, message, department, created_at,
-                   status, employee_id
+                   status, employee_id, priority
             FROM tickets
             WHERE ticket_id = ?
         """, (ticket_id,)).fetchone()
@@ -152,7 +160,7 @@ def get_all_tickets():
     with get_connection() as connection:
         rows = connection.execute("""
             SELECT ticket_id, message, department, created_at,
-                   status, employee_id
+                   status, employee_id, priority
             FROM tickets
             ORDER BY ticket_id DESC
         """).fetchall()
@@ -168,8 +176,8 @@ def get_employee_tickets(employee_id):
 
     with get_connection() as connection:
         rows = connection.execute("""
-            SELECT ticket_id, message, department, created_at,
-                   status, employee_id
+           SELECT ticket_id, message, department, created_at,
+       status, employee_id, priority
             FROM tickets
             WHERE employee_id = ?
             ORDER BY ticket_id DESC
