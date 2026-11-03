@@ -11,12 +11,16 @@ from backend.authy import (
     register_employee,
     authenticate_employee
 )
+
 from backend.database import (
     init_db,
     save_ticket,
     get_all_tickets,
+    get_employee_tickets,
+    get_department_tickets,
     update_ticket_status,
 )
+
 from backend.classifier import predict_department
 import csv
 import io
@@ -155,6 +159,7 @@ def login():
 
     session["employee_id"] = employee["employee_id"]
     session["role"] = employee["role"]
+    session["department"] = employee["department"]
 
     return jsonify({
         "message": "Login successful.",
@@ -172,7 +177,8 @@ def check_session():
         "authenticated": True,
         "employee": {
             "employee_id": session["employee_id"],
-            "role": session["role"]
+            "role": session["role"],
+            "department": session.get("department")
         }
     })
 
@@ -191,9 +197,36 @@ def health():
 
 @app.route("/api/tickets", methods=["GET"])
 def list_tickets():
-    rows = get_all_tickets()
+
+    # Check whether the user is logged in
+    if "employee_id" not in session:
+        return jsonify({"error": "Authentication required."}), 401
+
+    role = session.get("role")
+    employee_id = session.get("employee_id")
+    department = session.get("department")
+
+    # Employees can only see their own tickets
+    if role == "Employee":
+        rows = get_employee_tickets(employee_id)
+
+    # Support Staff can only see tickets assigned to their department
+    elif role == "Support Staff":
+        if not department:
+            return jsonify({"error": "No department assigned."}), 403
+
+        rows = get_department_tickets(department)
+
+    # Admins can see all tickets
+    elif role == "Admin":
+        rows = get_all_tickets()
+
+    else:
+        return jsonify({"error": "Access denied."}), 403
+
     tickets = [normalize_ticket(row) for row in rows]
-    return jsonify({"tickets": tickets})
+
+    return jsonify({"tickets": tickets}), 200
 
 
 @app.route("/api/tickets", methods=["POST"])

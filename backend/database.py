@@ -238,7 +238,23 @@ def update_ticket_status(ticket_id, status):
         """, (status, ticket_id))
 
     return cursor.rowcount > 0
+def get_department_tickets(department):
+    """Retrieve tickets assigned to a specific support department."""
+    if not department:
+        return []
 
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM tickets
+            WHERE department = ?
+            ORDER BY ticket_id DESC
+            """,
+            (department,)
+        ).fetchall()
+
+    return [dict(row) for row in rows]
 
 # Ensure the database tables exist when this module is imported.
 init_db()

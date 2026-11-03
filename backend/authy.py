@@ -154,6 +154,7 @@ def provision_employee_account(
         raise ValueError("This employee ID is already registered.")
 
 
+
 def authenticate_employee(employee_id, password):
     """Verify credentials and return account details."""
 
@@ -163,7 +164,7 @@ def authenticate_employee(employee_id, password):
     with get_connection() as connection:
         employee = connection.execute(
             """
-            SELECT employee_id, password_hash, role
+            SELECT employee_id, password_hash, role, department
             FROM employees
             WHERE employee_id = ?
             """,
@@ -178,5 +179,6 @@ def authenticate_employee(employee_id, password):
 
     return {
         "employee_id": employee["employee_id"],
-        "role": employee["role"]
+        "role": employee["role"],
+        "department": employee["department"]
     }
