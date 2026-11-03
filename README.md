@@ -1,46 +1,75 @@
 # Corporate Convenience — Smart Ticket Classification Engine
 
-## Member 1: Dataset and Machine Learning
+### AI-Powered Workplace Ticket Management System
 
-This part of the project prepares labelled employee requests and trains a text classifier for four departments: HR, IT, Finance, and Operations.
+## About the Project
 
-## Files
+Corporate Convenience is an AI-powered workplace ticket management system designed to simplify how employees report workplace issues and communicate with the relevant departments.
 
-- `tickets.csv` — example labelled ticket requests.
-- `train_model.py` — validates the data, trains a TF-IDF + Logistic Regression pipeline, evaluates it on a held-out split, and saves `model.joblib`.
-- `model.joblib` — generated when training succeeds; not included by default in this starter package.
+The system uses machine learning and automated response generation to classify employee requests, identify the appropriate department and generate professional responses.
 
-## Setup
+## Key Features
 
-Python 3.10+ is recommended.
+- **Employee Authentication:** Allows employees to register and log in.
+- **Ticket Submission:** Employees can submit workplace requests and concerns.
+- **AI Ticket Classification:** Automatically categorises requests into HR, IT, Finance and Operations.
+- **Priority Detection:** Identifies the urgency of submitted requests.
+- **Automated Responses:** Generates responses using different communication tones.
+- **Ticket Management:** Stores tickets and tracks their status.
+- **Ticket Ownership:** Links submitted tickets to individual employees.
 
-```bash
-python -m venv .venv
+## Technologies Used
+
+- Python
+- Flask
+- HTML
+- CSS
+- JavaScript
+- SQLite
+- Scikit-learn
+- Pandas
+
+## Project Structure
+
+```text
+Corporate-Convenience/
+│
+├── backend/       # Backend functionality
+├── data/          # Dataset
+├── models/        # Trained machine learning model
+├── static/        # CSS and JavaScript files
+├── templates/     # HTML templates
+├── tests/         # Application tests
+├── app.py         # Application entry point
+├── requirements.txt
+└── README.md
 ```
 
-Activate the environment, then install dependencies:
+## Running the Application
+
+1. Clone or download the project repository.
+2. Open the project folder in VS Code.
+3. Activate the virtual environment.
+4. Install the required dependencies using:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run training:
+5. Run the application:
 
 ```bash
-python train_model.py
+python app.py
 ```
 
-The script prints a held-out evaluation report and creates `model.joblib`.
+6. Open the local address displayed in your terminal in a web browser.
 
-## Dataset format
+## Project Status
 
-The CSV must contain these columns:
+Corporate Convenience is currently under development. Backend functionality, including authentication, ticket management, AI classification and automated response generation, has been implemented and tested.
 
-- `request_text`
-- `department`
+Frontend integration and further system improvements are ongoing.
 
-Allowed department labels: `HR`, `IT`, `Finance`, `Operations`.
+## Project Purpose
 
-## Notes
-
-The included dataset contains synthetic example requests for a prototype. Its evaluation results are only an initial check; real-world performance requires a larger, more varied and carefully reviewed dataset.
+The goal of Corporate Convenience is to improve workplace communication, reduce manual ticket handling and make it easier for employees to receive assistance from the appropriate departments.
