@@ -48,6 +48,135 @@ button:disabled {
     opacity: 0.65;
 }
 
+/* ── LOGIN SCREEN ─────────────────────────────── */
+
+.login-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--page-bg);
+}
+
+.login-card {
+    width: 100%;
+    max-width: 400px;
+    padding: 36px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(24, 56, 52, 0.1);
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+}
+
+.login-brand strong {
+    display: block;
+    font-size: 15px;
+    letter-spacing: -0.3px;
+}
+
+.login-brand small {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.login-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    padding: 4px;
+    background: #f0f4f2;
+    border-radius: 10px;
+}
+
+.login-tab {
+    flex: 1;
+    padding: 9px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.2s, color 0.2s;
+}
+
+.login-tab.active {
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.login-form {
+    display: grid;
+    gap: 14px;
+}
+
+.login-field {
+    display: grid;
+    gap: 6px;
+}
+
+.login-field label {
+    color: #43524f;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.login-field input,
+.login-field select {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #dce5e1;
+    border-radius: 9px;
+    outline: none;
+    background: #fff;
+    color: var(--text);
+    font-size: 13px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-field input:focus,
+.login-field select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(36, 107, 102, 0.1);
+}
+
+.login-message {
+    margin: 0;
+    font-size: 12px;
+    min-height: 0;
+}
+
+.login-message:not(:empty) {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #f0f5f3;
+    color: #435b54;
+}
+
+.login-message.error {
+    background: #fff0ef;
+    color: var(--danger);
+}
+
+.login-message.success {
+    background: #eaf7ef;
+    color: var(--success);
+}
+
+/* ── DASHBOARD SHELL ──────────────────────────── */
+
 .app-shell {
     min-height: 100vh;
 }
@@ -100,6 +229,12 @@ button:disabled {
     font-size: 12px;
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
 .header-status {
     display: flex;
     align-items: center;
@@ -117,47 +252,43 @@ button:disabled {
     box-shadow: 0 0 0 4px #e6f5ed;
 }
 
-.main-content {
-    width: min(1440px, 100%);
-    margin: 0 auto;
-    padding: 36px 5.5% 52px;
-}
-
-.page-heading {
+.user-profile {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 28px;
+    gap: 10px;
 }
 
-.eyebrow {
-    margin: 0 0 8px;
+.user-avatar {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--primary-light);
     color: var(--primary);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
-    letter-spacing: 1.6px;
+    flex-shrink: 0;
 }
 
-h1,
-h2,
-p {
-    margin-top: 0;
+.user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
 }
 
-h1 {
-    margin-bottom: 8px;
-    font-size: clamp(26px, 3vw, 34px);
-    line-height: 1.2;
-    letter-spacing: -1.2px;
+.user-id {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
 }
 
-.page-description {
-    max-width: 620px;
-    margin-bottom: 0;
+.user-role {
     color: var(--muted);
-    font-size: 14px;
+    font-size: 11px;
 }
+
+/* ── BUTTONS ──────────────────────────────────── */
 
 .button {
     min-height: 42px;
@@ -201,6 +332,58 @@ h1 {
     width: 100%;
 }
 
+.button-sm {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 11px;
+}
+
+/* ── MAIN CONTENT ─────────────────────────────── */
+
+.main-content {
+    width: min(1440px, 100%);
+    margin: 0 auto;
+    padding: 36px 5.5% 52px;
+}
+
+.page-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 28px;
+}
+
+.eyebrow {
+    margin: 0 0 8px;
+    color: var(--primary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+}
+
+h1,
+h2,
+p {
+    margin-top: 0;
+}
+
+h1 {
+    margin-bottom: 8px;
+    font-size: clamp(26px, 3vw, 34px);
+    line-height: 1.2;
+    letter-spacing: -1.2px;
+}
+
+.page-description {
+    max-width: 620px;
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* ── STAT CARDS ───────────────────────────────── */
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -239,6 +422,8 @@ h1 {
     color: #8b9794;
     font-size: 11px;
 }
+
+/* ── OVERVIEW GRID ────────────────────────────── */
 
 .overview-grid {
     display: grid;
@@ -328,6 +513,8 @@ h1 {
     color: var(--muted);
     font-size: 12px;
 }
+
+/* ── TICKET FORM ──────────────────────────────── */
 
 #ticketForm {
     display: grid;
@@ -437,6 +624,8 @@ h1 {
     background: #eaf7ef;
     color: var(--success);
 }
+
+/* ── TICKETS TABLE ────────────────────────────── */
 
 .tickets-panel {
     overflow: hidden;
@@ -580,6 +769,8 @@ tbody tr:hover {
     font-size: 11px;
 }
 
+/* ── FOOTER ───────────────────────────────────── */
+
 .app-footer {
     display: flex;
     justify-content: space-between;
@@ -594,6 +785,8 @@ tbody tr:hover {
     color: #52635f;
     font-weight: 700;
 }
+
+/* ── RESPONSIVE ───────────────────────────────── */
 
 @media (max-width: 1050px) {
     .main-content {
@@ -611,11 +804,23 @@ tbody tr:hover {
 }
 
 @media (max-width: 680px) {
+    .login-card {
+        padding: 24px;
+    }
+
     .app-header {
         align-items: flex-start;
         flex-direction: column;
         padding: 15px 5%;
         gap: 12px;
+    }
+
+    .header-right {
+        gap: 10px;
+    }
+
+    .user-info {
+        display: none;
     }
 
     .main-content {

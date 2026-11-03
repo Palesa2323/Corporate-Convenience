@@ -50,7 +50,7 @@ def verify_password(password, stored_hash):
         return False
 
 
-def register_employee(employee_id, password, role="Employee"):
+def register_employee(employee_id, password, role="Employee", department=None):
     """Register an ordinary employee account."""
 
     if not employee_id or not employee_id.strip():
@@ -64,6 +64,10 @@ def register_employee(employee_id, password, role="Employee"):
             "Employees cannot assign themselves privileged roles."
         )
 
+    valid_departments = {"HR", "IT", "Finance", "Operations", None}
+    if department not in valid_departments:
+        raise ValueError("Invalid department.")
+
     password_hash = hash_password(password)
 
     try:
@@ -75,7 +79,7 @@ def register_employee(employee_id, password, role="Employee"):
                 )
                 VALUES (?, ?, ?, ?)
                 """,
-                (employee_id.strip(), password_hash, "Employee", None)
+                (employee_id.strip(), password_hash, "Employee", department)
             )
 
         return True
