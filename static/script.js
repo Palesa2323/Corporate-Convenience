@@ -1,33 +1,12 @@
-
 "use strict";
 
 const API_URL = "/api/tickets";
 
 let tickets = [];
 
-const elements = {
-    form: document.getElementById("ticketForm"),
-    requester: document.getElementById("requester"),
-    employeeDepartment: document.getElementById("employeeDepartment"),
-    subject: document.getElementById("subject"),
-    description: document.getElementById("description"),
-    formMessage: document.getElementById("formMessage"),
-    routingPreview: document.getElementById("routingPreview"),
-    submitButton: document.getElementById("submitTicketButton"),
-    newTicketButton: document.getElementById("newTicketButton"),
-    exportButton: document.getElementById("exportButton"),
-    searchInput: document.getElementById("searchInput"),
-    departmentFilter: document.getElementById("departmentFilter"),
-    statusFilter: document.getElementById("statusFilter"),
-    ticketsTableBody: document.getElementById("ticketsTableBody"),
-    ticketsMessage: document.getElementById("ticketsMessage"),
-    ticketCountLabel: document.getElementById("ticketCountLabel"),
-    departmentBreakdown: document.getElementById("departmentBreakdown"),
-    totalTickets: document.getElementById("totalTickets"),
-    openTickets: document.getElementById("openTickets"),
-    inProgressTickets: document.getElementById("inProgressTickets"),
-    resolvedTickets: document.getElementById("resolvedTickets")
-};
+// --------------------------------------------------
+// UTILITIES
+// --------------------------------------------------
 
 function escapeHTML(value) {
     return String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -41,25 +20,15 @@ function escapeHTML(value) {
 
 function normaliseStatus(status) {
     const value = String(status || "Open").toLowerCase();
-
-    if (value === "in progress" || value === "in-progress") {
-        return "In Progress";
-    }
-
-    if (value === "resolved" || value === "closed") {
-        return "Resolved";
-    }
-
+    if (value === "in progress" || value === "in-progress") return "In Progress";
+    if (value === "resolved" || value === "closed") return "Resolved";
     return "Open";
 }
 
 async function apiRequest(url, options = {}) {
     const response = await fetch(url, {
         ...options,
-        headers: {
-            "Content-Type": "application/json",
-            ...(options.headers || {})
-        }
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
     });
 
     const contentType = response.headers.get("content-type") || "";
@@ -81,15 +50,178 @@ function showMessage(element, message, type = "") {
         : `tickets-message ${type}`.trim();
 }
 
+// --------------------------------------------------
+// AUTH — stored in localStorage (frontend-only)
+// --------------------------------------------------
+
+const USERS_KEY   = "cc_users";
+const SESSION_KEY = "cc_session";
+
+function getUsers()        { return JSON.parse(localStorage.getItem(USERS_KEY)   || "[]");   }
+function saveUsers(users)  { localStorage.setItem(USERS_KEY, JSON.stringify(users));          }
+function getSession()      { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");  }
+function saveSession(user) { localStorage.setItem(SESSION_KEY, JSON.stringify(user));         }
+function clearSession()    { localStorage.removeItem(SESSION_KEY);                            }
+
+function setLoginMessage(id, message, type) {
+    const el = document.getElementById(id);
+    el.textContent = message;
+    el.className = `login-message ${type}`.trim();
+}
+
+// Tab switching
+document.getElementById("tabSignIn").addEventListener("click", () => {
+    document.getElementById("signInForm").hidden  = false;
+    document.getElementById("registerForm").hidden = true;
+    document.getElementById("tabSignIn").classList.add("active");
+    document.getElementById("tabRegister").classList.remove("active");
+});
+
+document.getElementById("tabRegister").addEventListener("click", () => {
+    document.getElementById("registerForm").hidden = false;
+    document.getElementById("signInForm").hidden   = true;
+    document.getElementById("tabRegister").classList.add("active");
+    document.getElementById("tabSignIn").classList.remove("active");
+});
+
+// Register
+document.getElementById("registerForm").addEventListener("submit", event => {
+    event.preventDefault();
+
+    const employeeId = document.getElementById("regEmployeeId").value.trim();
+    const department = document.getElementById("regDepartment").value;
+    const password   = document.getElementById("regPassword").value;
+    const confirm    = document.getElementById("regConfirm").value;
+
+    if (!employeeId || !department || !password) {
+        setLoginMessage("registerMessage", "Please complete all fields.", "error");
+        return;
+    }
+
+    if (password !== confirm) {
+        setLoginMessage("registerMessage", "Passwords do not match.", "error");
+        return;
+    }
+
+    const users = getUsers();
+
+    if (users.find(u => u.employeeId === employeeId)) {
+        setLoginMessage("registerMessage", "This Employee ID is already registered.", "error");
+        return;
+    }
+
+    users.push({ employeeId, department, password });
+    saveUsers(users);
+
+    setLoginMessage("registerMessage", "Account created. You can now sign in.", "success");
+    event.target.reset();
+});
+
+// Sign in
+document.getElementById("signInForm").addEventListener("submit", event => {
+    event.preventDefault();
+
+    const employeeId = document.getElementById("loginEmployeeId").value.trim();
+    const password   = document.getElementById("loginPassword").value;
+    const users      = getUsers();
+    const user       = users.find(u => u.employeeId === employeeId && u.password === password);
+
+    if (!user) {
+        setLoginMessage("signInMessage", "Invalid Employee ID or password.", "error");
+        return;
+    }
+
+    saveSession(user);
+    showDashboard(user);
+});
+
+// --------------------------------------------------
+// DASHBOARD — only initialised after login
+// --------------------------------------------------
+
+function showDashboard(user) {
+    document.getElementById("loginScreen").hidden = true;
+    document.getElementById("dashboard").hidden   = false;
+
+    document.getElementById("userAvatar").textContent = user.employeeId.slice(0, 2).toUpperCase();
+    document.getElementById("userId").textContent     = user.employeeId;
+    document.getElementById("userRole").textContent   = user.department;
+
+    initialiseDashboard();
+    loadTickets();
+}
+
+function initialiseDashboard() {
+    const elements = {
+        form:               document.getElementById("ticketForm"),
+        requester:          document.getElementById("requester"),
+        employeeDepartment: document.getElementById("employeeDepartment"),
+        subject:            document.getElementById("subject"),
+        description:        document.getElementById("description"),
+        formMessage:        document.getElementById("formMessage"),
+        routingPreview:     document.getElementById("routingPreview"),
+        submitButton:       document.getElementById("submitTicketButton"),
+        newTicketButton:    document.getElementById("newTicketButton"),
+        exportButton:       document.getElementById("exportButton"),
+        searchInput:        document.getElementById("searchInput"),
+        departmentFilter:   document.getElementById("departmentFilter"),
+        statusFilter:       document.getElementById("statusFilter"),
+        ticketsTableBody:   document.getElementById("ticketsTableBody"),
+        ticketsMessage:     document.getElementById("ticketsMessage"),
+        ticketCountLabel:   document.getElementById("ticketCountLabel"),
+        departmentBreakdown:document.getElementById("departmentBreakdown"),
+        totalTickets:       document.getElementById("totalTickets"),
+        openTickets:        document.getElementById("openTickets"),
+        inProgressTickets:  document.getElementById("inProgressTickets"),
+        resolvedTickets:    document.getElementById("resolvedTickets")
+    };
+
+    // Expose elements for use in ticket functions
+    window._el = elements;
+
+    elements.form.addEventListener("submit", submitTicket);
+    elements.subject.addEventListener("input", updateRoutingPreview);
+    elements.description.addEventListener("input", updateRoutingPreview);
+    elements.searchInput.addEventListener("input", renderTickets);
+    elements.departmentFilter.addEventListener("change", renderTickets);
+    elements.statusFilter.addEventListener("change", renderTickets);
+
+    elements.newTicketButton.addEventListener("click", () => {
+        elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+        elements.requester.focus({ preventScroll: true });
+    });
+
+    elements.exportButton.addEventListener("click", () => {
+        window.location.href = `${API_URL}/export`;
+    });
+
+    elements.ticketsTableBody.addEventListener("change", event => {
+        const select = event.target.closest(".status-select");
+        if (!select) return;
+        updateTicketStatus(select.dataset.ticketId, select.value);
+    });
+
+    document.getElementById("logoutButton").addEventListener("click", () => {
+        clearSession();
+        document.getElementById("dashboard").hidden   = true;
+        document.getElementById("loginScreen").hidden = false;
+        document.getElementById("signInForm").reset();
+        setLoginMessage("signInMessage", "", "");
+        tickets = [];
+    });
+}
+
+// --------------------------------------------------
+// TICKETS
+// --------------------------------------------------
+
 async function loadTickets() {
+    const el = window._el;
+
     try {
         const data = await apiRequest(API_URL);
         tickets = Array.isArray(data.tickets) ? data.tickets : [];
-
-        tickets = tickets.map(ticket => ({
-            ...ticket,
-            status: normaliseStatus(ticket.status)
-        }));
+        tickets = tickets.map(t => ({ ...t, status: normaliseStatus(t.status) }));
 
         renderDashboard();
         renderDepartmentFilter();
@@ -97,396 +229,211 @@ async function loadTickets() {
     } catch (error) {
         console.error("Unable to load tickets:", error);
 
-        elements.ticketsTableBody.innerHTML = `
+        el.ticketsTableBody.innerHTML = `
             <tr>
                 <td colspan="6" class="empty-state">
                     Could not load tickets. ${escapeHTML(error.message)}
                 </td>
             </tr>`;
 
-        showMessage(
-            elements.ticketsMessage,
-            "Check that Flask and the database are running, then refresh.",
-            "error"
-        );
+        showMessage(el.ticketsMessage,
+            "Check that Flask and the database are running, then refresh.", "error");
     }
 }
 
 function renderDashboard() {
-    elements.totalTickets.textContent = tickets.length;
-
-    elements.openTickets.textContent = tickets.filter(
-        ticket => ticket.status === "Open"
-    ).length;
-
-    elements.inProgressTickets.textContent = tickets.filter(
-        ticket => ticket.status === "In Progress"
-    ).length;
-
-    elements.resolvedTickets.textContent = tickets.filter(
-        ticket => ticket.status === "Resolved"
-    ).length;
-
+    const el = window._el;
+    el.totalTickets.textContent     = tickets.length;
+    el.openTickets.textContent      = tickets.filter(t => t.status === "Open").length;
+    el.inProgressTickets.textContent= tickets.filter(t => t.status === "In Progress").length;
+    el.resolvedTickets.textContent  = tickets.filter(t => t.status === "Resolved").length;
     renderDepartmentBreakdown();
 }
 
 function renderDepartmentBreakdown() {
+    const el = window._el;
     const counts = {};
 
     tickets.forEach(ticket => {
-        const department = ticket.department || "Unassigned";
-        counts[department] = (counts[department] || 0) + 1;
+        const dept = ticket.department || "Unassigned";
+        counts[dept] = (counts[dept] || 0) + 1;
     });
 
-    const departments = Object.entries(counts)
-        .sort((first, second) => second[1] - first[1]);
+    const depts = Object.entries(counts).sort((a, b) => b[1] - a[1]);
 
-    if (departments.length === 0) {
-        elements.departmentBreakdown.innerHTML = `
-            <p class="muted">No tickets have been submitted yet.</p>`;
+    if (depts.length === 0) {
+        el.departmentBreakdown.innerHTML = `<p class="muted">No tickets have been submitted yet.</p>`;
         return;
     }
 
-    elements.departmentBreakdown.innerHTML = departments.map(
-        ([department, count]) => {
-            const percentage = tickets.length
-                ? Math.round((count / tickets.length) * 100)
-                : 0;
-
-            return `
-                <div class="department-row">
-                    <div class="department-row-top">
-                        <span class="department-name">
-                            ${escapeHTML(department)}
-                        </span>
-                        <span class="department-count">
-                            ${count} ${count === 1 ? "ticket" : "tickets"}
-                        </span>
-                    </div>
-                    <div class="progress-track">
-                        <div class="progress-fill"
-                             style="width: ${percentage}%"></div>
-                    </div>
-                </div>`;
-        }
-    ).join("");
+    el.departmentBreakdown.innerHTML = depts.map(([dept, count]) => {
+        const pct = tickets.length ? Math.round((count / tickets.length) * 100) : 0;
+        return `
+            <div class="department-row">
+                <div class="department-row-top">
+                    <span class="department-name">${escapeHTML(dept)}</span>
+                    <span class="department-count">${count} ${count === 1 ? "ticket" : "tickets"}</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width:${pct}%"></div>
+                </div>
+            </div>`;
+    }).join("");
 }
 
 function renderDepartmentFilter() {
-    const currentValue = elements.departmentFilter.value;
+    const el = window._el;
+    const current = el.departmentFilter.value;
+    const depts = [...new Set(tickets.map(t => t.department || "Unassigned"))].sort();
 
-    const departments = [...new Set(
-        tickets.map(ticket => ticket.department || "Unassigned")
-    )].sort();
-
-    elements.departmentFilter.innerHTML =
+    el.departmentFilter.innerHTML =
         '<option value="">All departments</option>' +
-        departments.map(department => `
-            <option value="${escapeHTML(department)}">
-                ${escapeHTML(department)}
-            </option>`
-        ).join("");
+        depts.map(d => `<option value="${escapeHTML(d)}">${escapeHTML(d)}</option>`).join("");
 
-    if (departments.includes(currentValue)) {
-        elements.departmentFilter.value = currentValue;
-    }
+    if (depts.includes(current)) el.departmentFilter.value = current;
 }
 
 function getFilteredTickets() {
-    const search = elements.searchInput.value.trim().toLowerCase();
-    const department = elements.departmentFilter.value;
-    const status = elements.statusFilter.value;
+    const el = window._el;
+    const search = el.searchInput.value.trim().toLowerCase();
+    const dept   = el.departmentFilter.value;
+    const status = el.statusFilter.value;
 
     return tickets.filter(ticket => {
-        const searchableText = [
-            ticket.ticket_number,
-            ticket.requester,
-            ticket.employee_department,
-            ticket.subject,
-            ticket.description,
-            ticket.department,
-            ticket.status
+        const text = [
+            ticket.ticket_number, ticket.requester, ticket.employee_department,
+            ticket.subject, ticket.description, ticket.department, ticket.status
         ].join(" ").toLowerCase();
 
         return (
-            (!search || searchableText.includes(search)) &&
-            (!department || ticket.department === department) &&
+            (!search || text.includes(search)) &&
+            (!dept   || ticket.department === dept) &&
             (!status || ticket.status === status)
         );
     });
 }
 
 function renderTickets() {
-    const filteredTickets = getFilteredTickets();
+    const el = window._el;
+    const filtered = getFilteredTickets();
 
-    if (filteredTickets.length === 0) {
-        elements.ticketsTableBody.innerHTML = `
-            <tr>
-                <td colspan="6" class="empty-state">
-                    No matching tickets found.
-                </td>
-            </tr>`;
+    if (filtered.length === 0) {
+        el.ticketsTableBody.innerHTML = `
+            <tr><td colspan="6" class="empty-state">No matching tickets found.</td></tr>`;
     } else {
-        elements.ticketsTableBody.innerHTML = filteredTickets.map(ticket => {
-            const status = normaliseStatus(ticket.status);
+        el.ticketsTableBody.innerHTML = filtered.map(ticket => {
+            const status      = normaliseStatus(ticket.status);
             const statusClass = status.toLowerCase().replace(/\s+/g, "-");
-
-            const options = ["Open", "In Progress", "Resolved"].map(option => `
-                <option value="${option}"
-                    ${status === option ? "selected" : ""}>
-                    ${option}
-                </option>`
+            const options     = ["Open", "In Progress", "Resolved"].map(o =>
+                `<option value="${o}" ${status === o ? "selected" : ""}>${o}</option>`
             ).join("");
 
             return `
                 <tr>
+                    <td><span class="ticket-id">${escapeHTML(ticket.ticket_number || `CC-${ticket.id ?? "New"}`)}</span></td>
                     <td>
-                        <span class="ticket-id">
-                            ${escapeHTML(ticket.ticket_number || `CC-${ticket.id ?? "New"}`)}
-                        </span>
+                        <span class="cell-main">${escapeHTML(ticket.requester || "Not provided")}</span>
+                        <span class="cell-sub">${escapeHTML(ticket.employee_department || "")}</span>
                     </td>
                     <td>
-                        <span class="cell-main">
-                            ${escapeHTML(ticket.requester || "Not provided")}
-                        </span>
-                        <span class="cell-sub">
-                            ${escapeHTML(ticket.employee_department || "")}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="cell-main">
-                            ${escapeHTML(ticket.subject || "Support request")}
-                        </span>
-                        <span class="cell-sub">
-                            ${escapeHTML(ticket.description || "")}
-                        </span>
+                        <span class="cell-main">${escapeHTML(ticket.subject || "Support request")}</span>
+                        <span class="cell-sub">${escapeHTML(ticket.description || "")}</span>
                     </td>
                     <td>${escapeHTML(ticket.department || "Unassigned")}</td>
+                    <td><span class="status-badge status-${statusClass}">${escapeHTML(status)}</span></td>
                     <td>
-                        <span class="status-badge status-${statusClass}">
-                            ${escapeHTML(status)}
-                        </span>
-                    </td>
-                    <td>
-                        ${
-                            ticket.id == null
-                                ? '<span class="muted">Unavailable</span>'
-                                : `<select class="status-select"
-                                           data-ticket-id="${escapeHTML(ticket.id)}"
-                                           aria-label="Change status for ${escapeHTML(ticket.ticket_number)}">
-                                        ${options}
-                                   </select>`
-                        }
+                        ${ticket.id == null
+                            ? '<span class="muted">Unavailable</span>'
+                            : `<select class="status-select"
+                                       data-ticket-id="${escapeHTML(ticket.id)}"
+                                       aria-label="Change status for ${escapeHTML(ticket.ticket_number)}">
+                                    ${options}
+                               </select>`}
                     </td>
                 </tr>`;
         }).join("");
     }
 
-    elements.ticketCountLabel.textContent =
-        `${filteredTickets.length} of ${tickets.length} ${
-            tickets.length === 1 ? "ticket" : "tickets"
-        }`;
+    el.ticketCountLabel.textContent =
+        `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? "ticket" : "tickets"}`;
 }
 
 function suggestDepartment(text) {
-    const message = text.toLowerCase();
-
+    const msg   = text.toLowerCase();
     const rules = [
-        {
-            department: "IT",
-            keywords: [
-                "computer", "laptop", "password", "login", "internet",
-                "network", "software", "printer", "email", "system",
-                "technical", "wifi", "wi-fi"
-            ]
-        },
-        {
-            department: "Human Resources",
-            keywords: [
-                "leave", "payroll query", "recruitment", "employment",
-                "grievance", "hr", "human resources", "employee benefits",
-                "payslip", "payslip query"
-            ]
-        },
-        {
-            department: "Finance",
-            keywords: [
-                "invoice", "payment", "reimbursement", "budget",
-                "expense claim", "purchase order", "financial",
-                "supplier payment"
-            ]
-        },
-        {
-            department: "Operations",
-            keywords: [
-                "office", "facilities", "building", "maintenance",
-                "equipment", "access card", "cleaning", "workspace"
-            ]
-        }
+        { department: "IT Support",       keywords: ["computer","laptop","password","login","internet","network","software","printer","email","system","technical","wifi","wi-fi"] },
+        { department: "Human Resources",  keywords: ["leave","payroll query","recruitment","employment","grievance","hr","human resources","employee benefits","payslip"] },
+        { department: "Finance",          keywords: ["invoice","payment","reimbursement","budget","expense claim","purchase order","financial","supplier payment"] },
+        { department: "Operations",       keywords: ["office","facilities","building","maintenance","equipment","access card","cleaning","workspace"] }
     ];
-
-    const match = rules.find(rule =>
-        rule.keywords.some(keyword => message.includes(keyword))
-    );
-
-    return match
-        ? match.department
-        : "The classifier will determine the best department when submitted.";
+    const match = rules.find(r => r.keywords.some(k => msg.includes(k)));
+    return match ? match.department : "The classifier will determine the best department when submitted.";
 }
 
 function updateRoutingPreview() {
-    const text = `${elements.subject.value} ${elements.description.value}`.trim();
-
-    elements.routingPreview.textContent = text
+    const el   = window._el;
+    const text = `${el.subject.value} ${el.description.value}`.trim();
+    el.routingPreview.textContent = text
         ? `Suggested department: ${suggestDepartment(text)}. Final routing is handled by the backend classifier.`
         : "Add an issue description to prepare your request.";
 }
 
 async function submitTicket(event) {
     event.preventDefault();
+    const el = window._el;
 
     const ticketData = {
-        requester: elements.requester.value.trim(),
-        employee_department: elements.employeeDepartment.value,
-        subject: elements.subject.value.trim(),
-        description: elements.description.value.trim()
+        requester:           el.requester.value.trim(),
+        employee_department: el.employeeDepartment.value,
+        subject:             el.subject.value.trim(),
+        description:         el.description.value.trim()
     };
 
     if (!Object.values(ticketData).every(Boolean)) {
-        showMessage(elements.formMessage, "Please complete all fields.", "error");
+        showMessage(el.formMessage, "Please complete all fields.", "error");
         return;
     }
 
-    elements.submitButton.disabled = true;
-    elements.submitButton.textContent = "Submitting...";
-
-    showMessage(elements.formMessage, "");
+    el.submitButton.disabled    = true;
+    el.submitButton.textContent = "Submitting...";
+    showMessage(el.formMessage, "");
 
     try {
-        const data = await apiRequest(API_URL, {
-            method: "POST",
-            body: JSON.stringify(ticketData)
-        });
-
-        showMessage(
-            elements.formMessage,
-            `Ticket ${data.ticket?.ticket_number || ""} submitted successfully.`,
-            "success"
-        );
-
-        elements.form.reset();
+        const data = await apiRequest(API_URL, { method: "POST", body: JSON.stringify(ticketData) });
+        showMessage(el.formMessage, `Ticket ${data.ticket?.ticket_number || ""} submitted successfully.`, "success");
+        el.form.reset();
         updateRoutingPreview();
-
         await loadTickets();
-
     } catch (error) {
         console.error("Unable to submit ticket:", error);
-
-        showMessage(
-            elements.formMessage,
-            error.message || "Unable to submit ticket. Please try again.",
-            "error"
-        );
+        showMessage(el.formMessage, error.message || "Unable to submit ticket. Please try again.", "error");
     } finally {
-        elements.submitButton.disabled = false;
-        elements.submitButton.textContent = "Submit ticket";
+        el.submitButton.disabled    = false;
+        el.submitButton.textContent = "Submit ticket";
     }
 }
 
 async function updateTicketStatus(ticketId, status) {
+    const el = window._el;
     try {
         await apiRequest(`${API_URL}/${encodeURIComponent(ticketId)}`, {
             method: "PATCH",
             body: JSON.stringify({ status })
         });
-
-        showMessage(elements.ticketsMessage, "Ticket status updated.");
+        showMessage(el.ticketsMessage, "Ticket status updated.");
         await loadTickets();
-
     } catch (error) {
         console.error("Unable to update ticket:", error);
-
-        showMessage(
-            elements.ticketsMessage,
-            error.message || "Could not update ticket status.",
-            "error"
-        );
-
+        showMessage(el.ticketsMessage, error.message || "Could not update ticket status.", "error");
         await loadTickets();
     }
 }
 
-function exportTickets() {
-    window.location.href = `${API_URL}/export`;
+// --------------------------------------------------
+// ON LOAD — restore session if present
+// --------------------------------------------------
+
+const existingSession = getSession();
+if (existingSession) {
+    showDashboard(existingSession);
 }
-
-elements.form.addEventListener("submit", submitTicket);
-
-elements.subject.addEventListener("input", updateRoutingPreview);
-elements.description.addEventListener("input", updateRoutingPreview);
-
-elements.searchInput.addEventListener("input", renderTickets);
-elements.departmentFilter.addEventListener("change", renderTickets);
-elements.statusFilter.addEventListener("change", renderTickets);
-
-elements.newTicketButton.addEventListener("click", () => {
-    elements.form.scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-    });
-
-    elements.requester.focus({ preventScroll: true });
-});
-
-elements.exportButton.addEventListener("click", exportTickets);
-
-elements.ticketsTableBody.addEventListener("change", event => {
-    const select = event.target.closest(".status-select");
-
-    if (!select) {
-        return;
-    }
-
-    updateTicketStatus(select.dataset.ticketId, select.value);
-});
-
-document.getElementById("logoutButton").addEventListener("click", async () => {
-    await fetch("/api/logout", { method: "POST" });
-    window.location.href = "/login";
-});
-
-async function checkSession() {
-    try {
-        const response = await fetch("/api/session");
-        const data = await response.json();
-
-        if (!response.ok || !data.authenticated) {
-            window.location.href = "/login";
-            return false;
-        }
-
-        const { employee_id, role, department } = data.employee;
-        const departmentLabels = {
-            HR: "Human Resources",
-            IT: "IT Support",
-            Finance: "Finance",
-            Operations: "Operations"
-        };
-
-        document.getElementById("userAvatar").textContent =
-            employee_id.slice(0, 2).toUpperCase();
-        document.getElementById("userId").textContent = employee_id;
-        document.getElementById("userRole").textContent =
-            departmentLabels[department] || department || role;
-
-        return true;
-
-    } catch {
-        window.location.href = "/login";
-        return false;
-    }
-}
-
-checkSession().then(authenticated => {
-    if (authenticated) loadTickets();
-});
