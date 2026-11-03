@@ -97,13 +97,12 @@ def init_db():
                 subject TEXT NOT NULL DEFAULT '',
                 message TEXT NOT NULL,
                 department TEXT NOT NULL,
-                priority TEXT NOT NULL DEFAULT 'Medium',
+                priority TEXT NOT NULL DEFAULT 'Normal',
                 created_at TEXT NOT NULL,
                 updated_at TEXT,
                 status TEXT NOT NULL DEFAULT 'Open',
                 employee_id TEXT REFERENCES employees(employee_id)
             )
-        """)
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS responses (
@@ -160,22 +159,32 @@ def init_db():
             WHERE ticket_number IS NULL
         """)
 
+        if "priority" not in ticket_columns:
+            connection.execute("""
+                ALTER TABLE tickets
+                ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'
+            """)
+
         connection.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_number
             ON tickets(ticket_number)
         """)
+
         connection.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_email
             ON employees(email)
         """)
+
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_tickets_department
             ON tickets(department)
         """)
+
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_tickets_employee
             ON tickets(employee_id)
         """)
+
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_responses_ticket
             ON responses(ticket_id)
@@ -221,6 +230,8 @@ def _clean_email(email, required=False):
         raise ValueError("Invalid email address.")
     return email
 
+def save_employee_ticket(message, department, employee_id, priority="Normal"):
+    """Save a ticket linked to the employee who submitted it."""
 
 def _check_password_rules(password):
     if not password or len(password) < MIN_PASSWORD_LENGTH:
@@ -242,15 +253,22 @@ def get_employee(employee_id):
     employee_id = _clean_id(employee_id)
 
     with get_connection() as connection:
-        row = connection.execute(
-            f"SELECT {_PUBLIC_EMPLOYEE_COLUMNS} FROM employees "
-            "WHERE employee_id = ?",
-            (employee_id,),
-        ).fetchone()
+        cursor = connection.execute("""
+            INSERT INTO tickets (
+                message, department, created_at, status,
+                employee_id, priority
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            message,
+            department,
+            created_at,
+            "Open",
+            employee_id.strip(),
+            priority
+        ))
 
-    return dict(row) if row else None
-
-
+    ticket_id = cursor.lastrowid
 def verify_login(employee_id, password):
     """Check credentials. Returns the user dict, or None if invalid.
 
@@ -262,10 +280,12 @@ def verify_login(employee_id, password):
         return None
 
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT * FROM employees WHERE employee_id = ?",
-            (str(employee_id).strip(),),
-        ).fetchone()
+        row = connection.execute("""
+            SELECT ticket_id, message, department, created_at,
+                   status, employee_id, priority
+            FROM tickets
+            WHERE ticket_id = ?
+        """, (ticket_id,)).fetchone()
 
     if not row or not row["is_active"]:
         return None
@@ -275,6 +295,17 @@ def verify_login(employee_id, password):
     return {key: row[key] for key in
             ("employee_id", "role", "department", "email", "is_active")}
 
+def get_all_tickets():
+    """Retrieve all tickets, newest first."""
+    with get_connection() as connection:
+        rows = connection.execute("""
+            SELECT ticket_id, message, department, created_at,
+                   status, employee_id, priority
+            FROM tickets
+            ORDER BY ticket_id DESC
+        """).fetchall()
+
+    return [dict(row) for row in rows]
 
 def _trusted_user(user):
     """Re-read the user from the database; reject unknown/inactive users."""
@@ -380,13 +411,15 @@ def reset_password(acting_user, employee_id, new_password):
     _check_password_rules(new_password)
 
     with get_connection() as connection:
-        cursor = connection.execute(
-            "UPDATE employees SET password_hash = ? WHERE employee_id = ?",
-            (generate_password_hash(new_password), _clean_id(employee_id)),
-        )
-    if cursor.rowcount == 0:
-        raise ValueError("Employee not found.")
-    return True
+        rows = connection.execute("""
+            SELECT ticket_id, message, department, created_at,
+                   status, employee_id, priority
+            FROM tickets
+            WHERE employee_id = ?
+            ORDER BY ticket_id DESC
+        """, (employee_id.strip(),)).fetchall()
+
+    return [dict(row) for row in rows]
 
 
 def change_own_password(user, old_password, new_password):
@@ -419,6 +452,10 @@ def list_employees(acting_user, role=None, department=None):
         params.append(_clean_department(department))
     query += " ORDER BY employee_id"
 
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+
+    return [dict(row) for row in rows]
     with get_connection() as connection:
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]

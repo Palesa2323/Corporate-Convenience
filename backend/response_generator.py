@@ -27,11 +27,20 @@ URGENT_PHRASES = [
     "stop using your laptop",
     "security warning",
     "suspicious activity",
-    "account compromised",
+    "account has been compromised",
+    "my account has been compromised",
     "possible virus",
     "hacked",
+   
 ]
-
+HIGH_PHRASES = [
+    "salary not paid",
+    "salary has not been paid",
+    "salary has not been received",
+    "not received my salary",
+    "missing salary payment",
+    "payroll problem",
+]
 
 # --------------------------------------------------
 # GEMINI CONNECTION
@@ -77,6 +86,9 @@ def detect_priority(message):
 
     if any(phrase in text for phrase in URGENT_PHRASES):
         return "Urgent"
+
+    if any(phrase in text for phrase in HIGH_PHRASES):
+        return "High"  
 
     return "Normal"
 
@@ -175,6 +187,35 @@ def detect_issue_type(message, department):
     return "General Request"
 
 
+def generate_acknowledgement(department, priority):
+    """Confirm that the employee's complaint has been received."""
+
+    department_names = {
+        "IT": "IT Support Team",
+        "HR": "Human Resources Team",
+        "Finance": "Finance Team",
+        "Operations": "Operations Team"
+    }
+
+    team_name = department_names.get(
+        department,
+        "relevant Support Team"
+    )
+
+    return (
+        "Dear Employee,\n\n"
+        "Thank you for contacting Corporate Convenience.\n\n"
+        "We confirm that we have successfully received your complaint. "
+        f"Your complaint has been forwarded to the {team_name} "
+        "for review.\n\n"
+        f"Your complaint has been recorded as {priority} priority. "
+        "The relevant team will review your complaint and provide "
+        "an update.\n\n"
+        "Thank you for your patience.\n\n"
+        "Corporate Convenience Support Team"
+    )
+
+
 # --------------------------------------------------
 # GEMINI RESPONSE GENERATION
 # --------------------------------------------------
@@ -186,9 +227,7 @@ def generate_ai_response(
     tone="Formal",
     priority="Normal"
 ):
-    """
-    Generate a professional workplace response using Gemini.
-    """
+    """Generate a professional workplace response using Gemini."""
 
     tone_instructions = {
         "Formal": (
@@ -484,10 +523,25 @@ def analyse_message(message, tone="Formal"):
     message = message.strip()
 
     department = predict_department(message)
+    # Send cybersecurity complaints to IT Support.
+    security_phrases = [
+    "account compromised",
+    "account has been compromised",
+    "suspicious activity",
+    "possible virus",
+    "hacked",
+    "security breach",
+    "ransomware",
+    "data breach"
+]
+    message_lower = message.lower()
+
+    if any(phrase in message_lower for phrase in security_phrases):
+        department = "IT"
+
     priority = detect_priority(message)
 
-    if priority == "Urgent":
-        department = "IT"
+    acknowledgement = generate_acknowledgement(department, priority)
 
     issue_type = detect_issue_type(message, department)
 
@@ -504,7 +558,10 @@ def analyse_message(message, tone="Formal"):
         "issue_type": issue_type,
         "priority": priority,
         "tone": tone,
-        "draft_response": draft_response,
+        "acknowledgement": acknowledgement,
+        "draft_response": generate_response(
+            message, department, tone, priority
+        ),
         "requires_human_review": priority == "Urgent",
     }
 
@@ -512,7 +569,6 @@ def analyse_message(message, tone="Formal"):
 # --------------------------------------------------
 # FOLLOW-UP RESPONSE GENERATION
 # --------------------------------------------------
-
 def generate_follow_up(previous_message, new_message, department,
                        tone="Formal"):
     """Generate a context-aware Gemini follow-up response."""
