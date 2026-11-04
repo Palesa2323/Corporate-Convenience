@@ -28,6 +28,7 @@ function normaliseStatus(status) {
 async function apiRequest(url, options = {}) {
     const response = await fetch(url, {
         ...options,
+        credentials: "include", // Crucial for Flask session cookies
         headers: { "Content-Type": "application/json", ...(options.headers || {}) }
     });
 
@@ -50,21 +51,9 @@ function showMessage(element, message, type = "") {
         : `tickets-message ${type}`.trim();
 }
 
-// --------------------------------------------------
-// AUTH — stored in localStorage (frontend-only)
-// --------------------------------------------------
-
-const USERS_KEY   = "cc_users";
-const SESSION_KEY = "cc_session";
-
-function getUsers()        { return JSON.parse(localStorage.getItem(USERS_KEY)   || "[]");   }
-function saveUsers(users)  { localStorage.setItem(USERS_KEY, JSON.stringify(users));          }
-function getSession()      { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");  }
-function saveSession(user) { localStorage.setItem(SESSION_KEY, JSON.stringify(user));         }
-function clearSession()    { localStorage.removeItem(SESSION_KEY);                            }
-
 function setLoginMessage(id, message, type) {
     const el = document.getElementById(id);
+    if (!el) return;
     el.textContent = message;
     el.className = `login-message ${type}`.trim();
 }
@@ -84,16 +73,16 @@ document.getElementById("tabRegister").addEventListener("click", () => {
     document.getElementById("tabSignIn").classList.remove("active");
 });
 
-// Register
-document.getElementById("registerForm").addEventListener("submit", event => {
+// Register (Calls backend API)
+document.getElementById("registerForm").addEventListener("submit", async event => {
     event.preventDefault();
 
-    const employeeId = document.getElementById("regEmployeeId").value.trim();
-    const department = document.getElementById("regDepartment").value;
-    const password   = document.getElementById("regPassword").value;
-    const confirm    = document.getElementById("regConfirm").value;
+    const employee_id = document.getElementById("regEmployeeId").value.trim();
+    const department  = document.getElementById("regDepartment").value;
+    const password    = document.getElementById("regPassword").value;
+    const confirm     = document.getElementById("regConfirm").value;
 
-    if (!employeeId || !department || !password) {
+    if (!employee_id || !department || !password) {
         setLoginMessage("registerMessage", "Please complete all fields.", "error");
         return;
     }
@@ -103,36 +92,41 @@ document.getElementById("registerForm").addEventListener("submit", event => {
         return;
     }
 
-    const users = getUsers();
+    try {
+        await apiRequest("/api/register", {
+            method: "POST",
+            body: JSON.stringify({ employee_id, password, department })
+        });
 
-    if (users.find(u => u.employeeId === employeeId)) {
-        setLoginMessage("registerMessage", "This Employee ID is already registered.", "error");
-        return;
+        setLoginMessage("registerMessage", "Account created. You can now sign in.", "success");
+        event.target.reset();
+    } catch (error) {
+        setLoginMessage("registerMessage", error.message || "Registration failed.", "error");
     }
-
-    users.push({ employeeId, department, password });
-    saveUsers(users);
-
-    setLoginMessage("registerMessage", "Account created. You can now sign in.", "success");
-    event.target.reset();
 });
 
-// Sign in
-document.getElementById("signInForm").addEventListener("submit", event => {
+// Sign in (Calls backend API)
+document.getElementById("signInForm").addEventListener("submit", async event => {
     event.preventDefault();
 
-    const employeeId = document.getElementById("loginEmployeeId").value.trim();
-    const password   = document.getElementById("loginPassword").value;
-    const users      = getUsers();
-    const user       = users.find(u => u.employeeId === employeeId && u.password === password);
+    const employee_id = document.getElementById("loginEmployeeId").value.trim();
+    const password    = document.getElementById("loginPassword").value;
 
-    if (!user) {
-        setLoginMessage("signInMessage", "Invalid Employee ID or password.", "error");
+    if (!employee_id || !password) {
+        setLoginMessage("signInMessage", "Please enter Employee ID and password.", "error");
         return;
     }
 
-    saveSession(user);
-    showDashboard(user);
+    try {
+        const data = await apiRequest("/api/login", {
+            method: "POST",
+            body: JSON.stringify({ employee_id, password })
+        });
+
+        showDashboard(data.employee);
+    } catch (error) {
+        setLoginMessage("signInMessage", error.message || "Invalid Employee ID or password.", "error");
+    }
 });
 
 // --------------------------------------------------
@@ -143,9 +137,9 @@ function showDashboard(user) {
     document.getElementById("loginScreen").hidden = true;
     document.getElementById("dashboard").hidden   = false;
 
-    document.getElementById("userAvatar").textContent = user.employeeId.slice(0, 2).toUpperCase();
-    document.getElementById("userId").textContent     = user.employeeId;
-    document.getElementById("userRole").textContent   = user.department;
+    document.getElementById("userAvatar").textContent = user.employee_id.slice(0, 2).toUpperCase();
+    document.getElementById("userId").textContent     = user.employee_id;
+    document.getElementById("userRole").textContent   = user.department || user.role;
 
     initialiseDashboard();
     loadTickets();
@@ -153,30 +147,29 @@ function showDashboard(user) {
 
 function initialiseDashboard() {
     const elements = {
-        form:               document.getElementById("ticketForm"),
-        requester:          document.getElementById("requester"),
+        form:                 document.getElementById("ticketForm"),
+        requester:            document.getElementById("requester"),
         employeeDepartment: document.getElementById("employeeDepartment"),
-        subject:            document.getElementById("subject"),
-        description:        document.getElementById("description"),
-        formMessage:        document.getElementById("formMessage"),
-        routingPreview:     document.getElementById("routingPreview"),
-        submitButton:       document.getElementById("submitTicketButton"),
-        newTicketButton:    document.getElementById("newTicketButton"),
-        exportButton:       document.getElementById("exportButton"),
-        searchInput:        document.getElementById("searchInput"),
-        departmentFilter:   document.getElementById("departmentFilter"),
-        statusFilter:       document.getElementById("statusFilter"),
-        ticketsTableBody:   document.getElementById("ticketsTableBody"),
-        ticketsMessage:     document.getElementById("ticketsMessage"),
-        ticketCountLabel:   document.getElementById("ticketCountLabel"),
-        departmentBreakdown:document.getElementById("departmentBreakdown"),
-        totalTickets:       document.getElementById("totalTickets"),
-        openTickets:        document.getElementById("openTickets"),
-        inProgressTickets:  document.getElementById("inProgressTickets"),
-        resolvedTickets:    document.getElementById("resolvedTickets")
+        subject:              document.getElementById("subject"),
+        description:          document.getElementById("description"),
+        formMessage:          document.getElementById("formMessage"),
+        routingPreview:       document.getElementById("routingPreview"),
+        submitButton:         document.getElementById("submitTicketButton"),
+        newTicketButton:      document.getElementById("newTicketButton"),
+        exportButton:         document.getElementById("exportButton"),
+        searchInput:          document.getElementById("searchInput"),
+        departmentFilter:     document.getElementById("departmentFilter"),
+        statusFilter:         document.getElementById("statusFilter"),
+        ticketsTableBody:     document.getElementById("ticketsTableBody"),
+        ticketsMessage:       document.getElementById("ticketsMessage"),
+        ticketCountLabel:     document.getElementById("ticketCountLabel"),
+        departmentBreakdown: document.getElementById("departmentBreakdown"),
+        totalTickets:         document.getElementById("totalTickets"),
+        openTickets:          document.getElementById("openTickets"),
+        inProgressTickets:    document.getElementById("inProgressTickets"),
+        resolvedTickets:      document.getElementById("resolvedTickets")
     };
 
-    // Expose elements for use in ticket functions
     window._el = elements;
 
     elements.form.addEventListener("submit", submitTicket);
@@ -201,8 +194,12 @@ function initialiseDashboard() {
         updateTicketStatus(select.dataset.ticketId, select.value);
     });
 
-    document.getElementById("logoutButton").addEventListener("click", () => {
-        clearSession();
+    document.getElementById("logoutButton").addEventListener("click", async () => {
+        try {
+            await apiRequest("/api/logout", { method: "POST" });
+        } catch (e) {
+            // ignore logout error
+        }
         document.getElementById("dashboard").hidden   = true;
         document.getElementById("loginScreen").hidden = false;
         document.getElementById("signInForm").reset();
@@ -361,7 +358,7 @@ function renderTickets() {
 function suggestDepartment(text) {
     const msg   = text.toLowerCase();
     const rules = [
-        { department: "IT Support",       keywords: ["computer","laptop","password","login","internet","network","software","printer","email","system","technical","wifi","wi-fi"] },
+        { department: "IT Support",      keywords: ["computer","laptop","password","login","internet","network","software","printer","email","system","technical","wifi","wi-fi"] },
         { department: "Human Resources",  keywords: ["leave","payroll query","recruitment","employment","grievance","hr","human resources","employee benefits","payslip"] },
         { department: "Finance",          keywords: ["invoice","payment","reimbursement","budget","expense claim","purchase order","financial","supplier payment"] },
         { department: "Operations",       keywords: ["office","facilities","building","maintenance","equipment","access card","cleaning","workspace"] }
@@ -371,7 +368,7 @@ function suggestDepartment(text) {
 }
 
 function updateRoutingPreview() {
-    const el   = window._el;
+    const el  = window._el;
     const text = `${el.subject.value} ${el.description.value}`.trim();
     el.routingPreview.textContent = text
         ? `Suggested department: ${suggestDepartment(text)}. Final routing is handled by the backend classifier.`
@@ -430,10 +427,18 @@ async function updateTicketStatus(ticketId, status) {
 }
 
 // --------------------------------------------------
-// ON LOAD — restore session if present
+// ON LOAD — check backend session
 // --------------------------------------------------
 
-const existingSession = getSession();
-if (existingSession) {
-    showDashboard(existingSession);
+async function checkActiveSession() {
+    try {
+        const data = await apiRequest("/api/session");
+        if (data.authenticated && data.employee) {
+            showDashboard(data.employee);
+        }
+    } catch (e) {
+        // Not logged in, stay on login screen
+    }
 }
+
+checkActiveSession();

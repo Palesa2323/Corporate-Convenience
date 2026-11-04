@@ -51,13 +51,11 @@ button:disabled {
 /* ── LOGIN SCREEN ─────────────────────────────── */
 
 .login-screen {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: var(--page-bg);
+    min-height: 100vh;
+    overflow-y: auto; /* Allows scrolling if content is taller than screen */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .login-card {
@@ -865,4 +863,8 @@ tbody tr:hover {
         padding: 18px 5%;
         gap: 5px;
     }
+}
+
+[hidden] {
+    display: none !important;
 }

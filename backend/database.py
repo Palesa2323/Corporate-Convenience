@@ -1,19 +1,4 @@
-"""Database layer: employee accounts, tickets, response history, privacy.
-
-Privacy model
--------------
-Every function that reads or changes ticket data takes the logged-in `user`
-(a dict with at least "employee_id"; usually the Flask session user).
-The role and department are ALWAYS re-read from the database, so a
-forged or stale session dict cannot grant extra access.
-
-    Employee       -> own tickets only (and only *sent* replies)
-    Support Staff  -> tickets of their own department only
-    Admin          -> every department
-
-Denied access raises PermissionError (Member 3: return HTTP 403).
-Bad input raises ValueError (HTTP 400).
-"""
+"""Database layer: employee accounts, tickets, response history and privacy."""
 
 import sqlite3
 from pathlib import Path
@@ -22,17 +7,18 @@ from contextlib import contextmanager
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Store the database in the main project folder.
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "tickets.db"
 
 DEPARTMENTS = ("IT", "HR", "Finance", "Operations")
-DEPARTMENT_MAP = {name.upper(): name for name in DEPARTMENTS}
 ROLES = ("Employee", "Support Staff", "Admin")
 STATUSES = ("Open", "In Progress", "Resolved")
 PRIORITIES = ("Low", "Medium", "High", "Urgent")
-PRIORITY_MAP = {name.upper(): name for name in PRIORITIES}
-TONES = ("Formal", "Friendly", "Urgent")
 MIN_PASSWORD_LENGTH = 8
 
 
@@ -42,8 +28,7 @@ MIN_PASSWORD_LENGTH = 8
 
 @contextmanager
 def get_connection():
-    """Create and safely close a SQLite database connection."""
-
+    """Create and safely close a SQLite connection."""
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -66,24 +51,26 @@ def _now():
 def _add_column_if_missing(connection, table, column, definition):
     existing = {
         row["name"]
-        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        for row in connection.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()
     }
+
     if column not in existing:
-        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        connection.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        )
 
 
 def init_db():
-    """Create the tables if missing and upgrade older databases in place."""
-
+    """Create tables and upgrade older databases."""
     with get_connection() as connection:
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 employee_id TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
-                role TEXT NOT NULL CHECK (
-                    role IN ('Employee', 'Support Staff', 'Admin')
-                ),
+                role TEXT NOT NULL,
                 department TEXT,
                 email TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1
@@ -97,12 +84,13 @@ def init_db():
                 subject TEXT NOT NULL DEFAULT '',
                 message TEXT NOT NULL,
                 department TEXT NOT NULL,
-                priority TEXT NOT NULL DEFAULT 'Normal',
+                priority TEXT NOT NULL DEFAULT 'Medium',
                 created_at TEXT NOT NULL,
                 updated_at TEXT,
                 status TEXT NOT NULL DEFAULT 'Open',
                 employee_id TEXT REFERENCES employees(employee_id)
             )
+        """)
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS responses (
@@ -111,8 +99,7 @@ def init_db():
                 tone TEXT,
                 draft_text TEXT,
                 final_text TEXT,
-                status TEXT NOT NULL DEFAULT 'Draft'
-                    CHECK (status IN ('Draft', 'Sent')),
+                status TEXT NOT NULL DEFAULT 'Draft',
                 created_by TEXT REFERENCES employees(employee_id),
                 sent_by TEXT REFERENCES employees(employee_id),
                 created_at TEXT NOT NULL,
@@ -125,8 +112,7 @@ def init_db():
                 log_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id),
                 response_id INTEGER REFERENCES responses(response_id),
-                email_type TEXT NOT NULL
-                    CHECK (email_type IN ('Confirmation', 'Response')),
+                email_type TEXT NOT NULL,
                 recipient TEXT,
                 success INTEGER NOT NULL,
                 error TEXT,
@@ -134,18 +120,22 @@ def init_db():
             )
         """)
 
-        # Upgrades for databases created by earlier versions.
+        # Upgrade older database versions.
         _add_column_if_missing(connection, "employees", "department", "TEXT")
         _add_column_if_missing(connection, "employees", "email", "TEXT")
         _add_column_if_missing(
-            connection, "employees", "is_active", "INTEGER NOT NULL DEFAULT 1"
+            connection, "employees", "is_active",
+            "INTEGER NOT NULL DEFAULT 1"
         )
+
         _add_column_if_missing(connection, "tickets", "ticket_number", "TEXT")
         _add_column_if_missing(
-            connection, "tickets", "subject", "TEXT NOT NULL DEFAULT ''"
+            connection, "tickets", "subject",
+            "TEXT NOT NULL DEFAULT ''"
         )
         _add_column_if_missing(
-            connection, "tickets", "priority", "TEXT NOT NULL DEFAULT 'Medium'"
+            connection, "tickets", "priority",
+            "TEXT NOT NULL DEFAULT 'Medium'"
         )
         _add_column_if_missing(connection, "tickets", "updated_at", "TEXT")
         _add_column_if_missing(
@@ -159,20 +149,15 @@ def init_db():
             WHERE ticket_number IS NULL
         """)
 
-        if "priority" not in ticket_columns:
-            connection.execute("""
-                ALTER TABLE tickets
-                ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'
-            """)
+        connection.execute("""
+            UPDATE tickets
+            SET priority = 'Medium'
+            WHERE priority = 'Normal'
+        """)
 
         connection.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_number
             ON tickets(ticket_number)
-        """)
-
-        connection.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_employees_email
-            ON employees(email)
         """)
 
         connection.execute("""
@@ -206,32 +191,40 @@ def _clean_department(department, required=True):
         if required:
             raise ValueError("Department is required.")
         return None
-    key = str(department).strip().upper()
-    if key not in DEPARTMENT_MAP:
-        raise ValueError("Invalid department.")
-    return DEPARTMENT_MAP[key]
+
+    department = str(department).strip()
+
+    for valid in DEPARTMENTS:
+        if department.lower() == valid.lower():
+            return valid
+
+    raise ValueError("Invalid department.")
 
 
 def _clean_priority(priority):
-    key = str(priority or "Medium").strip().upper()
-    if key not in PRIORITY_MAP:
-        raise ValueError("Invalid priority.")
-    return PRIORITY_MAP[key]
+    priority = str(priority or "Medium").strip().lower()
+
+    for valid in PRIORITIES:
+        if priority == valid.lower():
+            return valid
+
+    raise ValueError("Invalid priority.")
 
 
 def _clean_email(email, required=False):
-    if email is None or not str(email).strip():
+    if not email or not str(email).strip():
         if required:
             raise ValueError("Email address is required.")
         return None
+
     email = str(email).strip().lower()
-    local, _, domain = email.partition("@")
-    if not local or "." not in domain or " " in email:
+    local, separator, domain = email.partition("@")
+
+    if not separator or not local or "." not in domain or " " in email:
         raise ValueError("Invalid email address.")
+
     return email
 
-def save_employee_ticket(message, department, employee_id, priority="Normal"):
-    """Save a ticket linked to the employee who submitted it."""
 
 def _check_password_rules(password):
     if not password or len(password) < MIN_PASSWORD_LENGTH:
@@ -244,113 +237,111 @@ def _check_password_rules(password):
 # Employee accounts
 # --------------------------------------------------------------------------
 
-_PUBLIC_EMPLOYEE_COLUMNS = "employee_id, role, department, email, is_active"
+_PUBLIC_EMPLOYEE_COLUMNS = """
+    employee_id, role, department, email, is_active
+"""
 
 
 def get_employee(employee_id):
-    """Retrieve an employee (never includes the password hash)."""
-
+    """Retrieve an employee without exposing their password hash."""
     employee_id = _clean_id(employee_id)
 
     with get_connection() as connection:
-        cursor = connection.execute("""
-            INSERT INTO tickets (
-                message, department, created_at, status,
-                employee_id, priority
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            message,
-            department,
-            created_at,
-            "Open",
-            employee_id.strip(),
-            priority
-        ))
+        row = connection.execute("""
+            SELECT employee_id, role, department, email, is_active
+            FROM employees
+            WHERE employee_id = ?
+        """, (employee_id,)).fetchone()
 
-    ticket_id = cursor.lastrowid
+    return dict(row) if row else None
+
+
 def verify_login(employee_id, password):
-    """Check credentials. Returns the user dict, or None if invalid.
-
-    Deactivated accounts cannot log in. The same None is returned for an
-    unknown ID and a wrong password so callers can't reveal which it was.
-    """
-
-    if not employee_id or not str(employee_id).strip() or not password:
+    """Verify credentials and return the employee account."""
+    if not employee_id or not password:
         return None
 
     with get_connection() as connection:
         row = connection.execute("""
-            SELECT ticket_id, message, department, created_at,
-                   status, employee_id, priority
-            FROM tickets
-            WHERE ticket_id = ?
-        """, (ticket_id,)).fetchone()
+            SELECT employee_id, password_hash, role,
+                   department, email, is_active
+            FROM employees
+            WHERE employee_id = ?
+        """, (str(employee_id).strip(),)).fetchone()
 
     if not row or not row["is_active"]:
         return None
+
     if not check_password_hash(row["password_hash"], password):
         return None
 
-    return {key: row[key] for key in
-            ("employee_id", "role", "department", "email", "is_active")}
+    return {
+        key: row[key]
+        for key in (
+            "employee_id", "role", "department", "email", "is_active"
+        )
+    }
 
-def get_all_tickets():
-    """Retrieve all tickets, newest first."""
-    with get_connection() as connection:
-        rows = connection.execute("""
-            SELECT ticket_id, message, department, created_at,
-                   status, employee_id, priority
-            FROM tickets
-            ORDER BY ticket_id DESC
-        """).fetchall()
-
-    return [dict(row) for row in rows]
 
 def _trusted_user(user):
-    """Re-read the user from the database; reject unknown/inactive users."""
-
+    """Always retrieve the user's current permissions from the database."""
     if not isinstance(user, dict) or not user.get("employee_id"):
         raise PermissionError("Authentication required.")
 
     current = get_employee(user["employee_id"])
+
     if not current or not current["is_active"]:
         raise PermissionError("Account not found or deactivated.")
+
     return current
 
 
-def _require_admin(acting_user):
-    admin = _trusted_user(acting_user)
-    if admin["role"] != "Admin":
+def _require_admin(user):
+    current = _trusted_user(user)
+
+    if current["role"] != "Admin":
         raise PermissionError("Administrator access required.")
-    return admin
+
+    return current
 
 
 def _validate_account(role, department):
     if role not in ROLES:
         raise ValueError("Invalid role.")
+
+    department = _clean_department(department, required=False)
+
     if role == "Support Staff" and not department:
-        raise ValueError("Support Staff must be assigned a department.")
+        raise ValueError("Support Staff must have a department.")
+
     if role == "Admin":
         return None
+
     return department
 
 
-def _insert_employee(employee_id, password, role, department, email):
+def _insert_employee(employee_id, password, role, department=None, email=None):
     employee_id = _clean_id(employee_id)
     _check_password_rules(password)
-    department = _clean_department(department, required=False)
+
     department = _validate_account(role, department)
-    email = _clean_email(email, required=True)
+    email = _clean_email(email)
 
     try:
         with get_connection() as connection:
             connection.execute("""
-                INSERT INTO employees
-                    (employee_id, password_hash, role, department, email)
+                INSERT INTO employees (
+                    employee_id, password_hash, role, department, email
+                )
                 VALUES (?, ?, ?, ?, ?)
-            """, (employee_id, generate_password_hash(password),
-                  role, department, email))
+            """, (
+                employee_id,
+                generate_password_hash(password),
+                role,
+                department,
+                email
+            ))
+
     except sqlite3.IntegrityError:
         raise ValueError("Employee ID or email already exists.")
 
@@ -359,36 +350,46 @@ def _insert_employee(employee_id, password, role, department, email):
 
 def create_employee(acting_user, employee_id, password, role,
                     department=None, email=None):
-    """Admin only. Create an Employee, Support Staff or Admin account."""
-
+    """Admin only: create an employee account."""
     _require_admin(acting_user)
     return _insert_employee(employee_id, password, role, department, email)
 
 
+def register_employee_public(employee_id, password, department=None):
+    """Public registration for standard employees."""
+    return _insert_employee(employee_id, password, role="Employee", department=department)
+
+
 def update_employee(acting_user, employee_id, role=None, department=None,
                     email=None, is_active=None):
-    """Admin only. Change role, department, email or active status."""
-
+    """Admin only: update an employee account."""
     _require_admin(acting_user)
+
     target = get_employee(employee_id)
     if not target:
         raise ValueError("Employee not found.")
 
     new_role = role if role is not None else target["role"]
-    new_dept = (_clean_department(department, required=False)
-                if department is not None else target["department"])
-    new_dept = _validate_account(new_role, new_dept)
-    new_email = (_clean_email(email, required=True)
-                 if email is not None else target["email"])
-    new_active = int(bool(is_active)) if is_active is not None \
-        else target["is_active"]
+    new_department = (
+        department if department is not None
+        else target["department"]
+    )
+    new_department = _validate_account(new_role, new_department)
 
-    if (target["role"] == "Admin" and not new_active
-            and _count_active_admins() <= 1):
-        raise ValueError("Cannot deactivate the last active Admin.")
-    if (target["role"] == "Admin" and new_role != "Admin"
-            and _count_active_admins() <= 1):
-        raise ValueError("Cannot demote the last active Admin.")
+    new_email = (
+        _clean_email(email) if email is not None
+        else target["email"]
+    )
+    new_active = (
+        int(bool(is_active)) if is_active is not None
+        else target["is_active"]
+    )
+
+    if target["role"] == "Admin" and (
+        not new_active or new_role != "Admin"
+    ):
+        if _count_active_admins() <= 1:
+            raise ValueError("Cannot remove the last active Admin.")
 
     try:
         with get_connection() as connection:
@@ -396,8 +397,11 @@ def update_employee(acting_user, employee_id, role=None, department=None,
                 UPDATE employees
                 SET role = ?, department = ?, email = ?, is_active = ?
                 WHERE employee_id = ?
-            """, (new_role, new_dept, new_email, new_active,
-                  target["employee_id"]))
+            """, (
+                new_role, new_department, new_email,
+                new_active, target["employee_id"]
+            ))
+
     except sqlite3.IntegrityError:
         raise ValueError("Email already in use.")
 
@@ -405,72 +409,81 @@ def update_employee(acting_user, employee_id, role=None, department=None,
 
 
 def reset_password(acting_user, employee_id, new_password):
-    """Admin only. Replace a user's password (stored hashed)."""
-
+    """Admin only: reset an employee password."""
     _require_admin(acting_user)
     _check_password_rules(new_password)
 
     with get_connection() as connection:
-        rows = connection.execute("""
-            SELECT ticket_id, message, department, created_at,
-                   status, employee_id, priority
-            FROM tickets
+        cursor = connection.execute("""
+            UPDATE employees
+            SET password_hash = ?
             WHERE employee_id = ?
-            ORDER BY ticket_id DESC
-        """, (employee_id.strip(),)).fetchall()
+        """, (generate_password_hash(new_password), employee_id))
 
-    return [dict(row) for row in rows]
+    if cursor.rowcount == 0:
+        raise ValueError("Employee not found.")
+
+    return True
 
 
 def change_own_password(user, old_password, new_password):
-    """Any logged-in user can change their own password."""
-
+    """Allow a user to change their own password."""
     current = _trusted_user(user)
+
     if not verify_login(current["employee_id"], old_password):
         raise PermissionError("Current password is incorrect.")
+
     _check_password_rules(new_password)
 
     with get_connection() as connection:
-        connection.execute(
-            "UPDATE employees SET password_hash = ? WHERE employee_id = ?",
-            (generate_password_hash(new_password), current["employee_id"]),
-        )
+        connection.execute("""
+            UPDATE employees
+            SET password_hash = ?
+            WHERE employee_id = ?
+        """, (
+            generate_password_hash(new_password),
+            current["employee_id"]
+        ))
+
     return True
 
 
 def list_employees(acting_user, role=None, department=None):
-    """Admin only. List accounts, optionally filtered."""
-
+    """Admin only: retrieve employee accounts."""
     _require_admin(acting_user)
+
     query = f"SELECT {_PUBLIC_EMPLOYEE_COLUMNS} FROM employees WHERE 1=1"
     params = []
+
     if role:
+        if role not in ROLES:
+            raise ValueError("Invalid role.")
         query += " AND role = ?"
         params.append(role)
+
     if department:
         query += " AND department = ?"
         params.append(_clean_department(department))
+
     query += " ORDER BY employee_id"
 
     with get_connection() as connection:
         rows = connection.execute(query, params).fetchall()
 
     return [dict(row) for row in rows]
-    with get_connection() as connection:
-        rows = connection.execute(query, params).fetchall()
-    return [dict(row) for row in rows]
 
 
 def _count_active_admins():
     with get_connection() as connection:
-        return connection.execute(
-            "SELECT COUNT(*) FROM employees "
-            "WHERE role = 'Admin' AND is_active = 1"
-        ).fetchone()[0]
+        return connection.execute("""
+            SELECT COUNT(*)
+            FROM employees
+            WHERE role = 'Admin' AND is_active = 1
+        """).fetchone()[0]
 
 
 # --------------------------------------------------------------------------
-# Tickets: creation
+# Tickets: creation & retrieval
 # --------------------------------------------------------------------------
 
 _TICKET_SELECT = """
@@ -482,15 +495,16 @@ _TICKET_SELECT = """
 """
 
 
-def _insert_ticket(message, department, employee_id, subject, priority):
+def _insert_ticket(message, department, employee_id,
+                   subject="", priority="Medium"):
     message = (message or "").strip()
+    subject = (subject or "").strip()
+
     if not message:
         raise ValueError("Ticket message cannot be empty.")
 
     department = _clean_department(department)
     priority = _clean_priority(priority)
-    subject = (subject or "").strip()
-    created_at = _now()
 
     with get_connection() as connection:
         cursor = connection.execute("""
@@ -499,32 +513,159 @@ def _insert_ticket(message, department, employee_id, subject, priority):
                 created_at, status, employee_id
             )
             VALUES (?, ?, ?, ?, ?, 'Open', ?)
-        """, (subject, message, department, priority, created_at, employee_id))
+        """, (
+            subject, message, department, priority,
+            _now(), employee_id
+        ))
 
-    return cursor.rowcount > 0
-def get_department_tickets(department):
-    """Retrieve tickets assigned to a specific support department."""
-    if not department:
-        return []
+        ticket_id = cursor.lastrowid
+
+        connection.execute("""
+            UPDATE tickets
+            SET ticket_number = ?
+            WHERE ticket_id = ?
+        """, (f"TKT-{ticket_id:06d}", ticket_id))
+
+    return ticket_id
+
+
+def save_employee_ticket(user, message, department,
+                         subject="", priority="Medium"):
+    """Save a ticket for the authenticated employee."""
+    current = _trusted_user(user)
+
+    if current["role"] != "Employee":
+        raise PermissionError("Only employees can submit tickets.")
+
+    ticket_id = _insert_ticket(
+        message,
+        department,
+        current["employee_id"],
+        subject,
+        priority
+    )
+
+    return get_ticket(user, ticket_id)
+
+
+def get_employee_tickets(user):
+    """Employees can retrieve only their own tickets."""
+    current = _trusted_user(user)
+
+    if current["role"] != "Employee":
+        raise PermissionError("Employee access required.")
 
     with get_connection() as connection:
         rows = connection.execute(
-            """
-            SELECT *
-            FROM tickets
-            WHERE department = ?
-            ORDER BY ticket_id DESC
+            _TICKET_SELECT + """
+                WHERE t.employee_id = ?
+                ORDER BY t.ticket_id DESC
             """,
-            (department,)
+            (current["employee_id"],)
         ).fetchall()
 
     return [dict(row) for row in rows]
 
-# Ensure the database tables exist when this module is imported.
+
+def get_department_tickets(user, department=None):
+    """Support Staff can retrieve tickets from their own department."""
+    current = _trusted_user(user)
+
+    if current["role"] != "Support Staff":
+        raise PermissionError("Support Staff access required.")
+
+    own_department = current["department"]
+
+    if not own_department:
+        raise PermissionError("No department assigned.")
+
+    if department is not None:
+        requested_department = _clean_department(department)
+        if requested_department != own_department:
+            raise PermissionError("Access to this department is denied.")
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            _TICKET_SELECT + """
+                WHERE t.department = ?
+                ORDER BY t.ticket_id DESC
+            """,
+            (own_department,)
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_all_tickets(user):
+    """Admins can retrieve all tickets."""
+    _require_admin(user)
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            _TICKET_SELECT + """
+                ORDER BY t.ticket_id DESC
+            """
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_ticket(user, ticket_id):
+    """Retrieve one ticket only if the user has permission to see it."""
+    current = _trusted_user(user)
+
+    with get_connection() as connection:
+        row = connection.execute(
+            _TICKET_SELECT + """
+                WHERE t.ticket_id = ?
+            """,
+            (ticket_id,)
+        ).fetchone()
+
+    if not row:
+        return None
+
+    ticket = dict(row)
+
+    if current["role"] == "Employee":
+        if ticket["employee_id"] != current["employee_id"]:
+            raise PermissionError("You cannot access this ticket.")
+
+    elif current["role"] == "Support Staff":
+        if ticket["department"] != current["department"]:
+            raise PermissionError("You cannot access this ticket.")
+
+    elif current["role"] != "Admin":
+        raise PermissionError("Access denied.")
+
+    return ticket
+
+
+def update_ticket_status(user, ticket_id, status):
+    """Update a ticket status with role and department checks."""
+    current = _trusted_user(user)
+
+    if current["role"] not in {"Support Staff", "Admin"}:
+        raise PermissionError("You cannot update tickets.")
+
+    status = str(status or "").strip().title()
+
+    if status not in STATUSES:
+        raise ValueError("Invalid ticket status.")
+
+    ticket = get_ticket(user, ticket_id)
+    if ticket is None:
+        return False
+
+    with get_connection() as connection:
+        cursor = connection.execute("""
+            UPDATE tickets
+            SET status = ?, updated_at = ?
+            WHERE ticket_id = ?
+        """, (status, _now(), ticket_id))
+
+    return cursor.rowcount > 0
+
+
+# Initialize database on import
 init_db()
-
-
-if __name__ == "__main__":
-    made = seed_test_accounts()
-    print("Created:", ", ".join(made) if made else "nothing (already seeded)")
-    print(f"Test password for all accounts: {TEST_PASSWORD}")

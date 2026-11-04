@@ -1,8 +1,7 @@
 
-import hashlib
-import hmac
-import secrets
 import sqlite3
+
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from backend.database import get_connection
 
@@ -12,41 +11,20 @@ ALLOWED_ROLES = {"Employee", "Support Staff", "Admin"}
 
 
 def hash_password(password):
-    """Hash a password using PBKDF2 with a random salt."""
+    """Hash a password securely."""
 
-    if not password:
-        raise ValueError("Password cannot be empty.")
+    if not password or len(password) < 8:
+        raise ValueError("Password must be at least 8 characters.")
 
-    salt = secrets.token_bytes(16)
-
-    password_hash = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt,
-        600_000
-    )
-
-    return f"{salt.hex()}:{password_hash.hex()}"
+    return generate_password_hash(password)
 
 
 def verify_password(password, stored_hash):
     """Verify a password against its stored hash."""
 
     try:
-        salt_hex, hash_hex = stored_hash.split(":")
-        salt = bytes.fromhex(salt_hex)
-        expected_hash = bytes.fromhex(hash_hex)
-
-        actual_hash = hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode("utf-8"),
-            salt,
-            600_000
-        )
-
-        return hmac.compare_digest(actual_hash, expected_hash)
-
-    except (ValueError, AttributeError):
+        return check_password_hash(stored_hash, password)
+    except (ValueError, TypeError):
         return False
 
 
@@ -56,16 +34,10 @@ def register_employee(employee_id, password, role="Employee", department=None):
     if not employee_id or not employee_id.strip():
         raise ValueError("Employee ID is required.")
 
-    if not password:
-        raise ValueError("Password is required.")
-
     if role != "Employee":
-        raise ValueError(
-            "Employees cannot assign themselves privileged roles."
-        )
+        raise ValueError("Employees cannot assign themselves privileged roles.")
 
-    valid_departments = {"HR", "IT", "Finance", "Operations", None}
-    if department not in valid_departments:
+    if department not in DEPARTMENTS and department is not None:
         raise ValueError("Invalid department.")
 
     password_hash = hash_password(password)
@@ -103,35 +75,27 @@ def provision_employee_account(
     if not employee_id or not employee_id.strip():
         raise ValueError("Employee ID is required.")
 
-    if not password:
-        raise ValueError("Password is required.")
-
     if role not in ALLOWED_ROLES:
         raise ValueError("Invalid employee role.")
 
-    # Confirm that the person creating the account is an Admin.
+    if role == "Support Staff" and department not in DEPARTMENTS:
+        raise ValueError("Support Staff must have a valid department.")
+
+    if role != "Support Staff":
+        department = None
+
     with get_connection() as connection:
         admin = connection.execute(
             """
-            SELECT role
+            SELECT role, is_active
             FROM employees
             WHERE employee_id = ?
             """,
             (admin_id.strip(),)
         ).fetchone()
 
-    if admin is None or admin["role"] != "Admin":
-        raise PermissionError(
-            "Only an Admin can create privileged accounts."
-        )
-
-    if role == "Support Staff":
-        if department not in DEPARTMENTS:
-            raise ValueError(
-                "Support Staff must be assigned a valid department."
-            )
-    else:
-        department = None
+    if not admin or admin["role"] != "Admin" or not admin["is_active"]:
+        raise PermissionError("Only an active Admin can create accounts.")
 
     password_hash = hash_password(password)
 
@@ -144,19 +108,13 @@ def provision_employee_account(
                 )
                 VALUES (?, ?, ?, ?)
                 """,
-                (
-                    employee_id.strip(),
-                    password_hash,
-                    role,
-                    department
-                )
+                (employee_id.strip(), password_hash, role, department)
             )
 
         return True
 
     except sqlite3.IntegrityError:
         raise ValueError("This employee ID is already registered.")
-
 
 
 def authenticate_employee(employee_id, password):
@@ -168,14 +126,15 @@ def authenticate_employee(employee_id, password):
     with get_connection() as connection:
         employee = connection.execute(
             """
-            SELECT employee_id, password_hash, role, department
+            SELECT employee_id, password_hash, role,
+                   department, email, is_active
             FROM employees
             WHERE employee_id = ?
             """,
             (employee_id.strip(),)
         ).fetchone()
 
-    if employee is None:
+    if employee is None or not employee["is_active"]:
         return None
 
     if not verify_password(password, employee["password_hash"]):
@@ -184,5 +143,6 @@ def authenticate_employee(employee_id, password):
     return {
         "employee_id": employee["employee_id"],
         "role": employee["role"],
-        "department": employee["department"]
+        "department": employee["department"],
+        "email": employee["email"]
     }
