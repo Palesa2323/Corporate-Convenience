@@ -18,6 +18,7 @@ DATABASE_PATH = BASE_DIR / "tickets.db"
 DEPARTMENTS = ("IT", "HR", "Finance", "Operations")
 ROLES = ("Employee", "Support Staff", "Admin")
 STATUSES = ("Open", "In Progress", "Resolved")
+RESPONSE_STATUSES = ("Draft", "Sent")
 PRIORITIES = ("Low", "Medium", "High", "Urgent")
 MIN_PASSWORD_LENGTH = 8
 
@@ -100,6 +101,8 @@ def init_db():
                 draft_text TEXT,
                 final_text TEXT,
                 status TEXT NOT NULL DEFAULT 'Draft',
+                response_type TEXT NOT NULL DEFAULT 'Reply',
+                ai_generated INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT REFERENCES employees(employee_id),
                 sent_by TEXT REFERENCES employees(employee_id),
                 created_at TEXT NOT NULL,
@@ -141,6 +144,17 @@ def init_db():
         _add_column_if_missing(
             connection, "tickets", "employee_id",
             "TEXT REFERENCES employees(employee_id)"
+        )
+
+        # Responses: 'Acknowledgement' rows are sent to the employee at
+        # once; 'Reply' rows start as a Draft until support staff send them.
+        _add_column_if_missing(
+            connection, "responses", "response_type",
+            "TEXT NOT NULL DEFAULT 'Reply'"
+        )
+        _add_column_if_missing(
+            connection, "responses", "ai_generated",
+            "INTEGER NOT NULL DEFAULT 0"
         )
 
         connection.execute("""
@@ -665,6 +679,291 @@ def update_ticket_status(user, ticket_id, status):
         """, (status, _now(), ticket_id))
 
     return cursor.rowcount > 0
+
+
+# --------------------------------------------------------------------------
+# Responses: acknowledgement, AI draft and staff-approved replies
+# --------------------------------------------------------------------------
+
+_RESPONSE_SELECT = """
+    SELECT response_id, ticket_id, response_type, tone, draft_text,
+           final_text, status, ai_generated, created_by, sent_by,
+           created_at, sent_at
+    FROM responses
+"""
+
+
+def _with_text(item):
+    """Add a single `text` field: the sent text, otherwise the draft."""
+    item["text"] = item.get("final_text") or item.get("draft_text") or ""
+    return item
+
+
+def _employee_view(item):
+    """What an employee is allowed to see of a response."""
+    return {
+        "response_id": item["response_id"],
+        "response_type": item["response_type"],
+        "text": item["final_text"],
+        "sent_at": item["sent_at"],
+    }
+
+
+def save_ticket_responses(user, ticket_id, acknowledgement, draft_text=None,
+                          tone=None, ai_generated=False):
+    """
+    Store the automatic responses for a new ticket.
+
+    - The acknowledgement is marked Sent straight away.
+    - The AI reply is stored as a Draft and stays hidden from the
+      employee until support staff review and send it.
+    """
+    # get_ticket enforces that this user is allowed to see the ticket.
+    ticket = get_ticket(user, ticket_id)
+
+    if ticket is None:
+        raise ValueError("Ticket not found.")
+
+    now = _now()
+
+    with get_connection() as connection:
+
+        if acknowledgement and str(acknowledgement).strip():
+            connection.execute("""
+                INSERT INTO responses (
+                    ticket_id, tone, draft_text, final_text, status,
+                    response_type, ai_generated, created_at, sent_at
+                )
+                VALUES (?, ?, ?, ?, 'Sent', 'Acknowledgement', 0, ?, ?)
+            """, (
+                ticket_id, tone, acknowledgement, acknowledgement,
+                now, now
+            ))
+
+        if draft_text and str(draft_text).strip():
+            connection.execute("""
+                INSERT INTO responses (
+                    ticket_id, tone, draft_text, status,
+                    response_type, ai_generated, created_at
+                )
+                VALUES (?, ?, ?, 'Draft', 'Reply', ?, ?)
+            """, (
+                ticket_id, tone, draft_text,
+                1 if ai_generated else 0, now
+            ))
+
+
+def get_ticket_responses(user, ticket_id):
+    """
+    Return the responses on a ticket.
+
+    Employees only see responses that have been Sent, and only the
+    final text. Support Staff and Admins also see drafts.
+    """
+    current = _trusted_user(user)
+
+    # get_ticket enforces the ownership / department rules.
+    ticket = get_ticket(user, ticket_id)
+
+    if ticket is None:
+        return None
+
+    query = _RESPONSE_SELECT + " WHERE ticket_id = ?"
+
+    if current["role"] == "Employee":
+        query += " AND status = 'Sent'"
+
+    query += " ORDER BY response_id"
+
+    with get_connection() as connection:
+        rows = connection.execute(query, (ticket_id,)).fetchall()
+
+    if current["role"] == "Employee":
+        return [_employee_view(dict(row)) for row in rows]
+
+    return [_with_text(dict(row)) for row in rows]
+
+
+def _staff_user(user):
+    """Return the current user if they are Support Staff or an Admin."""
+    current = _trusted_user(user)
+
+    if current["role"] not in {"Support Staff", "Admin"}:
+        raise PermissionError("Support Staff access required.")
+
+    return current
+
+
+def save_draft(user, ticket_id, draft_text, tone, ai_generated=False):
+    """
+    Support Staff / Admin: store an AI (or template) draft for a ticket.
+
+    Any earlier unsent draft on the ticket is replaced, so each ticket
+    has at most one draft waiting at a time.
+    """
+    current = _staff_user(user)
+
+    # Department check for Support Staff happens inside get_ticket.
+    ticket = get_ticket(user, ticket_id)
+
+    if ticket is None:
+        return None
+
+    draft_text = (draft_text or "").strip()
+
+    if not draft_text:
+        raise ValueError("Draft text cannot be empty.")
+
+    with get_connection() as connection:
+        connection.execute("""
+            DELETE FROM responses
+            WHERE ticket_id = ?
+              AND response_type = 'Reply'
+              AND status = 'Draft'
+        """, (ticket_id,))
+
+        cursor = connection.execute("""
+            INSERT INTO responses (
+                ticket_id, tone, draft_text, status, response_type,
+                ai_generated, created_by, created_at
+            )
+            VALUES (?, ?, ?, 'Draft', 'Reply', ?, ?, ?)
+        """, (
+            ticket_id, tone, draft_text,
+            1 if ai_generated else 0,
+            current["employee_id"], _now()
+        ))
+
+        row = connection.execute(
+            _RESPONSE_SELECT + " WHERE response_id = ?",
+            (cursor.lastrowid,)
+        ).fetchone()
+
+    return _with_text(dict(row))
+
+
+def send_response(user, ticket_id, final_text, response_id=None):
+    """
+    Support Staff / Admin: send a reply to the employee.
+
+    - With response_id: the (possibly edited) draft is marked Sent.
+    - Without it: a brand new reply, typed by staff, is sent.
+
+    The employee then sees it under their ticket.
+    """
+    current = _staff_user(user)
+
+    # Department check for Support Staff happens inside get_ticket.
+    ticket = get_ticket(user, ticket_id)
+
+    if ticket is None:
+        return None
+
+    final_text = (final_text or "").strip()
+
+    if not final_text:
+        raise ValueError("Reply text cannot be empty.")
+
+    now = _now()
+
+    with get_connection() as connection:
+
+        if response_id is not None:
+            cursor = connection.execute("""
+                UPDATE responses
+                SET final_text = ?, status = 'Sent', sent_by = ?, sent_at = ?
+                WHERE response_id = ?
+                  AND ticket_id = ?
+                  AND response_type = 'Reply'
+                  AND status = 'Draft'
+            """, (
+                final_text, current["employee_id"], now,
+                response_id, ticket_id
+            ))
+
+            if cursor.rowcount == 0:
+                raise ValueError("Draft not found, or it was already sent.")
+
+            new_id = response_id
+
+        else:
+            cursor = connection.execute("""
+                INSERT INTO responses (
+                    ticket_id, final_text, status, response_type,
+                    ai_generated, created_by, sent_by, created_at, sent_at
+                )
+                VALUES (?, ?, 'Sent', 'Reply', 0, ?, ?, ?, ?)
+            """, (
+                ticket_id, final_text, current["employee_id"],
+                current["employee_id"], now, now
+            ))
+
+            new_id = cursor.lastrowid
+
+        row = connection.execute(
+            _RESPONSE_SELECT + " WHERE response_id = ?",
+            (new_id,)
+        ).fetchone()
+
+    return _with_text(dict(row))
+
+
+def get_responses_for_tickets(user, ticket_ids):
+    """
+    Return {ticket_id: [responses]} for a list of tickets, so a dashboard
+    can show each ticket's replies underneath it.
+
+    Employees only get their own tickets' Sent responses (text only).
+    Support Staff get their department's, including drafts.
+    Admins get everything.
+    """
+    current = _trusted_user(user)
+    ticket_ids = [int(t) for t in ticket_ids]
+
+    if not ticket_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in ticket_ids)
+    params = list(ticket_ids)
+
+    query = f"""
+        SELECT r.response_id, r.ticket_id, r.response_type, r.tone,
+               r.draft_text, r.final_text, r.status, r.ai_generated,
+               r.created_by, r.sent_by, r.created_at, r.sent_at
+        FROM responses r
+        JOIN tickets t ON t.ticket_id = r.ticket_id
+        WHERE r.ticket_id IN ({placeholders})
+    """
+
+    if current["role"] == "Employee":
+        query += " AND t.employee_id = ? AND r.status = 'Sent'"
+        params.append(current["employee_id"])
+
+    elif current["role"] == "Support Staff":
+        query += " AND t.department = ?"
+        params.append(current["department"])
+
+    elif current["role"] != "Admin":
+        raise PermissionError("Access denied.")
+
+    query += " ORDER BY r.response_id"
+
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+
+    grouped = {}
+
+    for row in rows:
+        item = dict(row)
+
+        if current["role"] == "Employee":
+            item = _employee_view(item)
+        else:
+            item = _with_text(item)
+
+        grouped.setdefault(row["ticket_id"], []).append(item)
+
+    return grouped
 
 
 # Initialize database on import

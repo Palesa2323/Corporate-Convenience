@@ -1,5 +1,5 @@
-
 import os
+import time
 import logging
 from pathlib import Path
 
@@ -16,7 +16,16 @@ from backend.classifier import predict_department
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-GEMINI_MODEL = "gemini-3.8-flash"
+# Set GEMINI_MODEL in your .env file. Run list_gemini_models.py to see which
+# names your API key can use. The default below is only a fallback.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+# Optional backup model, used if the main one stays busy or unavailable.
+# Run list_gemini_models.py to see which names your key can use.
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
+
+# Seconds to wait before the 2nd and 3rd attempt when Google is busy.
+RETRY_DELAYS = (2, 5)
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +40,8 @@ URGENT_PHRASES = [
     "my account has been compromised",
     "possible virus",
     "hacked",
-   
 ]
+
 HIGH_PHRASES = [
     "salary not paid",
     "salary has not been paid",
@@ -41,6 +50,20 @@ HIGH_PHRASES = [
     "missing salary payment",
     "payroll problem",
 ]
+
+# Messages containing these phrases are always routed to IT Support.
+SECURITY_PHRASES = [
+    "account compromised",
+    "account has been compromised",
+    "my account has been compromised",
+    "suspicious activity",
+    "possible virus",
+    "hacked",
+    "security breach",
+    "ransomware",
+    "data breach",
+]
+
 
 # --------------------------------------------------
 # GEMINI CONNECTION
@@ -57,22 +80,69 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
+def _is_busy_error(error):
+    """True for 'Google is busy' errors, which are worth retrying."""
+    text = str(error)
+    return any(
+        marker in text
+        for marker in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED")
+    )
+
+
+def _call_model(client, model, prompt):
+    """Make one Gemini call and return the text."""
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+    )
+
+    text = response.text
+
+    if not text or not text.strip():
+        raise RuntimeError("Gemini returned an empty response.")
+
+    return text.strip()
+
 
 def generate_with_gemini(prompt):
-    """Generate a response using Google's Gemini Interactions API."""
+    """
+    Generate a response using the Gemini generate_content API.
+
+    If Google is busy (503 / 429) the call is retried a couple of times.
+    If the main model still fails, the optional backup model is tried.
+    """
 
     client = get_gemini_client()
 
-    interaction = client.interactions.create(
-        model="gemini-3.8-flash",
-        input=prompt,
-        store=False
-    )
+    models = [GEMINI_MODEL]
 
-    if not interaction.output_text:
-        raise RuntimeError("Gemini returned an empty response.")
+    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        models.append(GEMINI_FALLBACK_MODEL)
 
-    return interaction.output_text.strip()
+    last_error = None
+
+    for model in models:
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            try:
+                return _call_model(client, model, prompt)
+
+            except Exception as error:
+                last_error = error
+
+                # A wrong model name or key will not fix itself by
+                # retrying, so go straight to the next model.
+                if not _is_busy_error(error):
+                    break
+
+                logger.warning(
+                    "Gemini model %s is busy (attempt %d of %d).",
+                    model, attempt + 1, len(RETRY_DELAYS) + 1
+                )
+
+                if attempt < len(RETRY_DELAYS):
+                    time.sleep(RETRY_DELAYS[attempt])
+
+    raise last_error
 
 
 # --------------------------------------------------
@@ -88,7 +158,7 @@ def detect_priority(message):
         return "Urgent"
 
     if any(phrase in text for phrase in HIGH_PHRASES):
-        return "High"  
+        return "High"
 
     return "Normal"
 
@@ -186,6 +256,10 @@ def detect_issue_type(message, department):
 
     return "General Request"
 
+
+# --------------------------------------------------
+# ACKNOWLEDGEMENT
+# --------------------------------------------------
 
 def generate_acknowledgement(department, priority):
     """Confirm that the employee's complaint has been received."""
@@ -326,34 +400,11 @@ def generate_ai_response(
 # FALLBACK RESPONSE TEMPLATES
 # --------------------------------------------------
 
-def generate_response(message, department, tone="Formal",
-                      priority="Normal"):
-    """
-    Generate a Gemini response, falling back to existing templates
-    if the Gemini service is unavailable.
-    """
+def build_fallback_response(department, issue_type, tone, priority):
+    """Return a template-based reply (used when Gemini is unavailable)."""
 
-    issue_type = detect_issue_type(message, department)
-
-    # Try actual Generative AI first.
-    try:
-        return generate_ai_response(
-            message=message,
-            department=department,
-            issue_type=issue_type,
-            tone=tone,
-            priority=priority
-        )
-
-    except Exception as error:
-        logger.warning(
-            "Gemini response generation failed. "
-            "Using fallback templates. Error: %s",
-            error
-        )
-
-    # Existing template-based fallback.
-    if priority == "Urgent":
+    # Urgent security notice applies to IT tickets only.
+    if priority == "Urgent" and department == "IT":
         return (
             "Urgent IT Support Notice: Please follow the instruction "
             "not to use your laptop or computer. Do not attempt to "
@@ -503,15 +554,75 @@ def generate_response(message, department, tone="Formal",
     return reply
 
 
+def generate_response(message, department, tone="Formal",
+                      priority="Normal"):
+    """
+    Generate a response with Gemini, falling back to templates if
+    Gemini is unavailable.
+
+    Returns a tuple: (reply_text, ai_generated)
+    where ai_generated is True when Gemini produced the reply.
+    """
+
+    issue_type = detect_issue_type(message, department)
+
+    try:
+        reply = generate_ai_response(
+            message=message,
+            department=department,
+            issue_type=issue_type,
+            tone=tone,
+            priority=priority
+        )
+        return reply, True
+
+    except Exception:
+        # logger.exception records the full traceback.
+        logger.exception(
+            "Gemini response generation failed. Using fallback templates."
+        )
+
+    reply = build_fallback_response(department, issue_type, tone, priority)
+    return reply, False
+
+
 # --------------------------------------------------
 # MAIN TICKET ANALYSIS
 # --------------------------------------------------
 
-def analyse_message(message, tone="Formal"):
-    """Classify an employee request and generate a draft response."""
+def classify_ticket(message):
+    """
+    Route a ticket and build its acknowledgement WITHOUT calling Gemini.
+
+    This runs the moment an employee submits a ticket. The AI-written
+    reply is generated later, by the support team, in the tone they pick.
+    """
 
     if not isinstance(message, str) or not message.strip():
         raise ValueError("Please enter an employee support message.")
+
+    message = message.strip()
+    message_lower = message.lower()
+
+    department = predict_department(message)
+
+    # Send cybersecurity complaints to IT Support.
+    if any(phrase in message_lower for phrase in SECURITY_PHRASES):
+        department = "IT"
+
+    priority = detect_priority(message)
+
+    return {
+        "department": department,
+        "issue_type": detect_issue_type(message, department),
+        "priority": priority,
+        "acknowledgement": generate_acknowledgement(department, priority),
+        "requires_human_review": priority == "Urgent",
+    }
+
+
+def analyse_message(message, tone="Formal"):
+    """Classify an employee request and generate a draft response."""
 
     allowed_tones = {"Formal", "Friendly", "Urgent"}
 
@@ -520,32 +631,16 @@ def analyse_message(message, tone="Formal"):
             "Tone must be Formal, Friendly or Urgent."
         )
 
+    classification = classify_ticket(message)
+
     message = message.strip()
+    department = classification["department"]
+    priority = classification["priority"]
+    acknowledgement = classification["acknowledgement"]
+    issue_type = classification["issue_type"]
 
-    department = predict_department(message)
-    # Send cybersecurity complaints to IT Support.
-    security_phrases = [
-    "account compromised",
-    "account has been compromised",
-    "suspicious activity",
-    "possible virus",
-    "hacked",
-    "security breach",
-    "ransomware",
-    "data breach"
-]
-    message_lower = message.lower()
-
-    if any(phrase in message_lower for phrase in security_phrases):
-        department = "IT"
-
-    priority = detect_priority(message)
-
-    acknowledgement = generate_acknowledgement(department, priority)
-
-    issue_type = detect_issue_type(message, department)
-
-    draft_response = generate_response(
+    # Generate the draft once and reuse it.
+    draft_response, ai_generated = generate_response(
         message=message,
         department=department,
         tone=tone,
@@ -559,9 +654,8 @@ def analyse_message(message, tone="Formal"):
         "priority": priority,
         "tone": tone,
         "acknowledgement": acknowledgement,
-        "draft_response": generate_response(
-            message, department, tone, priority
-        ),
+        "draft_response": draft_response,
+        "ai_generated": ai_generated,
         "requires_human_review": priority == "Urgent",
     }
 
@@ -569,6 +663,7 @@ def analyse_message(message, tone="Formal"):
 # --------------------------------------------------
 # FOLLOW-UP RESPONSE GENERATION
 # --------------------------------------------------
+
 def generate_follow_up(previous_message, new_message, department,
                        tone="Formal"):
     """Generate a context-aware Gemini follow-up response."""
@@ -644,11 +739,9 @@ def generate_follow_up(previous_message, new_message, department,
     try:
         return generate_with_gemini(prompt)
 
-    except Exception as error:
-        logger.warning(
-            "Gemini follow-up generation failed. "
-            "Using fallback response. Error: %s",
-            error
+    except Exception:
+        logger.exception(
+            "Gemini follow-up generation failed. Using fallback response."
         )
 
     # Preserve the existing urgent IT fallback.
@@ -684,6 +777,8 @@ def generate_follow_up(previous_message, new_message, department,
 # --------------------------------------------------
 
 if __name__ == "__main__":
+
+    logging.basicConfig(level=logging.INFO)
 
     message = input("Enter an employee support message: ")
 

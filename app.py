@@ -19,8 +19,20 @@ from backend.database import (
     get_department_tickets,
     get_ticket,
     update_ticket_status,
+    save_ticket_responses,
+    get_ticket_responses,
+    get_responses_for_tickets,
+    save_draft,
+    send_response,
+    create_employee,
+    list_employees,
+    update_employee,
+    reset_password,
 )
-from backend.classifier import predict_department
+from backend.response_generator import (
+    classify_ticket,
+    generate_response,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -47,6 +59,32 @@ def login_page():
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+ALLOWED_TONES = {"Formal", "Friendly", "Urgent"}
+
+# The AI code uses "Normal"; the database calls the same level "Medium".
+PRIORITY_MAP = {"Normal": "Medium"}
+
+# The six kinds of account. Staff accounts are "Support Staff" with a
+# department; the Administrator is the only one who sees every ticket.
+ACCOUNT_TYPES = {
+    "Employee": ("Employee", None),
+    "IT": ("Support Staff", "IT"),
+    "Finance": ("Support Staff", "Finance"),
+    "HR": ("Support Staff", "HR"),
+    "Operations": ("Support Staff", "Operations"),
+    "Administrator": ("Admin", None),
+}
+
+
+def account_type_of(role, department):
+    """Turn a role + department back into one of the six account types."""
+    if role == "Admin":
+        return "Administrator"
+    if role == "Support Staff":
+        return department
+    return "Employee"
 
 
 def row_to_dict(row):
@@ -122,6 +160,7 @@ def normalize_ticket(row):
             or data.get("department")
             or "Unassigned"
         ),
+        "priority": data.get("priority") or "Medium",
         "status": str(data.get("status") or "Open").title(),
         "created_at": (
             data.get("created_at")
@@ -175,6 +214,10 @@ def login():
     session["role"] = employee["role"]
     session["department"] = employee["department"]
 
+    employee["account_type"] = account_type_of(
+        employee["role"], employee["department"]
+    )
+
     return jsonify({
         "message": "Login successful.",
         "employee": employee
@@ -193,7 +236,10 @@ def check_session():
         "employee": {
             "employee_id": session["employee_id"],
             "role": session["role"],
-            "department": session.get("department")
+            "department": session.get("department"),
+            "account_type": account_type_of(
+                session["role"], session.get("department")
+            )
         }
     })
 
@@ -231,6 +277,16 @@ def list_tickets():
             return jsonify({"error": "Access denied."}), 403
 
         tickets = [normalize_ticket(row) for row in rows]
+
+        # Attach each ticket's replies so a dashboard can show them
+        # underneath the ticket. Employees only get Sent replies.
+        replies = get_responses_for_tickets(
+            user, [ticket["id"] for ticket in tickets]
+        )
+
+        for ticket in tickets:
+            ticket["responses"] = replies.get(ticket["id"], [])
+
         return jsonify({"tickets": tickets}), 200
 
     except PermissionError as error:
@@ -266,20 +322,51 @@ def create_ticket():
         f"Description: {description}"
     )
 
+    # Routing only looks at what the employee wrote.
+    analysis_text = f"{subject}\n{description}"
+
     try:
-        assigned_department = predict_department(full_message)
+        # Route the ticket and build the acknowledgement. This does not
+        # call Gemini: the support team generates the AI reply later, in
+        # the tone they choose.
+        classification = classify_ticket(analysis_text)
+
+        assigned_department = classification["department"]
+        priority = PRIORITY_MAP.get(
+            classification["priority"], classification["priority"]
+        )
 
         if assigned_department not in {"HR", "IT", "Finance", "Operations"}:
             return jsonify({"error": "Unable to determine the ticket department."}), 422
 
+        user = get_logged_in_user()
+
         saved_ticket = save_employee_ticket(
-            user=get_logged_in_user(),
+            user=user,
             message=full_message,
             department=assigned_department,
-            subject=subject
+            subject=subject,
+            priority=priority
         )
 
+        # The employee gets the automatic acknowledgement straight away.
+        try:
+            save_ticket_responses(
+                user,
+                saved_ticket["ticket_id"],
+                acknowledgement=classification["acknowledgement"]
+            )
+        except Exception:
+            app.logger.exception(
+                "Ticket %s was saved but its acknowledgement was not.",
+                saved_ticket["ticket_id"]
+            )
+
         ticket = normalize_ticket(saved_ticket)
+        ticket["responses"] = get_ticket_responses(
+            user, saved_ticket["ticket_id"]
+        )
+
         return jsonify({
             "message": "Ticket submitted successfully.",
             "ticket": ticket
@@ -302,7 +389,11 @@ def change_ticket_status(ticket_id):
         return jsonify({"error": "You are not authorised to update tickets."}), 403
 
     user = get_logged_in_user()
-    ticket = get_ticket(user, ticket_id)
+
+    try:
+        ticket = get_ticket(user, ticket_id)
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
 
     if ticket is None:
         return jsonify({"error": "Ticket not found."}), 404
@@ -332,6 +423,280 @@ def change_ticket_status(ticket_id):
     except Exception:
         app.logger.exception("Unable to update ticket status")
         return jsonify({"error": "Unable to update ticket status."}), 500
+
+
+@app.route("/api/tickets/<int:ticket_id>", methods=["GET"])
+def get_ticket_detail(ticket_id):
+    """One ticket plus its responses (what the role is allowed to see)."""
+    user = get_logged_in_user()
+
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    try:
+        ticket = get_ticket(user, ticket_id)
+
+        if ticket is None:
+            return jsonify({"error": "Ticket not found."}), 404
+
+        return jsonify({
+            "ticket": normalize_ticket(ticket),
+            "responses": get_ticket_responses(user, ticket_id)
+        }), 200
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except Exception:
+        app.logger.exception("Unable to retrieve ticket")
+        return jsonify({"error": "Unable to retrieve the ticket."}), 500
+
+
+@app.route("/api/tickets/<int:ticket_id>/draft", methods=["POST"])
+def create_draft(ticket_id):
+    """
+    Support Staff / Admin: generate an AI draft reply in the tone they
+    choose. Generating again replaces the previous unsent draft.
+    """
+    user = get_logged_in_user()
+
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    if session.get("role") not in {"Support Staff", "Admin"}:
+        return jsonify({"error": "You are not authorised to draft replies."}), 403
+
+    data = request.get_json(silent=True) or {}
+    tone = str(data.get("tone", "")).strip().title()
+
+    if tone not in ALLOWED_TONES:
+        return jsonify({
+            "error": "Please choose a tone: Formal, Friendly or Urgent."
+        }), 400
+
+    try:
+        ticket = get_ticket(user, ticket_id)
+
+        if ticket is None:
+            return jsonify({"error": "Ticket not found."}), 404
+
+        details = normalize_ticket(ticket)
+
+        text, ai_generated = generate_response(
+            message=f"{details['subject']}\n{details['description']}",
+            department=details["department"],
+            tone=tone,
+            priority=details["priority"]
+        )
+
+        draft = save_draft(user, ticket_id, text, tone, ai_generated)
+
+        result = {
+            "message": "Draft created. Review it, edit it and send it.",
+            "response": draft
+        }
+
+        if not ai_generated:
+            result["warning"] = (
+                "Gemini was unavailable, so a template draft was used. "
+                "You can try again."
+            )
+
+        return jsonify(result), 200
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Unable to create draft")
+        return jsonify({"error": "Unable to create the draft."}), 500
+
+
+@app.route("/api/tickets/<int:ticket_id>/reply", methods=["POST"])
+def send_reply(ticket_id):
+    """
+    Support Staff / Admin: send a reply to the employee. Pass
+    response_id to send an (edited) draft, or leave it out to send a
+    reply typed from scratch. The employee sees it under their ticket.
+    """
+    user = get_logged_in_user()
+
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    if session.get("role") not in {"Support Staff", "Admin"}:
+        return jsonify({"error": "You are not authorised to send replies."}), 403
+
+    data = request.get_json(silent=True) or {}
+    response_id = data.get("response_id")
+
+    if response_id is not None:
+        try:
+            response_id = int(response_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid draft."}), 400
+
+    try:
+        sent = send_response(
+            user, ticket_id, data.get("final_text"),
+            response_id=response_id
+        )
+
+        if sent is None:
+            return jsonify({"error": "Ticket not found."}), 404
+
+        return jsonify({
+            "message": "Reply sent to the employee.",
+            "response": sent
+        }), 200
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Unable to send reply")
+        return jsonify({"error": "Unable to send the reply."}), 500
+
+
+# --------------------------------------------------------------------------
+# Administrator: manage the six account types
+# --------------------------------------------------------------------------
+
+def admin_only():
+    """Return (user, None) for an Admin, or (None, error_response)."""
+    user = get_logged_in_user()
+
+    if not user:
+        return None, (jsonify({"error": "Authentication required."}), 401)
+
+    if session.get("role") != "Admin":
+        return None, (jsonify({"error": "Administrator access required."}), 403)
+
+    return user, None
+
+
+@app.route("/api/admin/accounts", methods=["GET"])
+def admin_list_accounts():
+    user, error = admin_only()
+    if error:
+        return error
+
+    try:
+        accounts = list_employees(user)
+
+        for account in accounts:
+            account["account_type"] = account_type_of(
+                account["role"], account["department"]
+            )
+
+        return jsonify({"accounts": accounts}), 200
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except Exception:
+        app.logger.exception("Unable to list accounts")
+        return jsonify({"error": "Unable to list accounts."}), 500
+
+
+@app.route("/api/admin/accounts", methods=["POST"])
+def admin_create_account():
+    user, error = admin_only()
+    if error:
+        return error
+
+    data = request.get_json(silent=True) or {}
+    account_type = str(data.get("account_type", "")).strip()
+
+    # Accept "hr", "HR", "administrator" and so on.
+    matches = {name.lower(): name for name in ACCOUNT_TYPES}
+    account_type = matches.get(account_type.lower())
+
+    if account_type is None:
+        return jsonify({
+            "error": "Account type must be one of: "
+                     + ", ".join(ACCOUNT_TYPES)
+        }), 400
+
+    role, department = ACCOUNT_TYPES[account_type]
+
+    try:
+        if role == "Employee":
+            department = data.get("department")
+
+        account = create_employee(
+            user,
+            str(data.get("employee_id", "")).strip(),
+            str(data.get("password", "")),
+            role,
+            department,
+            data.get("email")
+        )
+
+        account["account_type"] = account_type_of(
+            account["role"], account["department"]
+        )
+
+        return jsonify({
+            "message": "Account created.",
+            "account": account
+        }), 201
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Unable to create account")
+        return jsonify({"error": "Unable to create the account."}), 500
+
+
+@app.route("/api/admin/accounts/<employee_id>", methods=["PATCH"])
+def admin_update_account(employee_id):
+    """Deactivate / reactivate an account, set its email or reset its password."""
+    user, error = admin_only()
+    if error:
+        return error
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+        account = update_employee(
+            user,
+            employee_id,
+            email=data.get("email"),
+            is_active=data.get("is_active")
+        )
+
+        if data.get("new_password"):
+            reset_password(user, employee_id, str(data["new_password"]))
+
+        account["account_type"] = account_type_of(
+            account["role"], account["department"]
+        )
+
+        return jsonify({
+            "message": "Account updated.",
+            "account": account
+        }), 200
+
+    except PermissionError as error:
+        return jsonify({"error": str(error)}), 403
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Unable to update account")
+        return jsonify({"error": "Unable to update the account."}), 500
 
 
 @app.route("/api/tickets/export", methods=["GET"])

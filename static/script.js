@@ -1,8 +1,18 @@
 "use strict";
 
 const API_URL = "/api/tickets";
+const TONES = ["Formal", "Friendly", "Urgent"];
 
 let tickets = [];
+let currentUser = null;
+let dashboardReady = false;
+
+// Ticket ids (as strings) whose reply panel is open. Staff / admin only.
+const expandedTickets = new Set();
+
+// What each staff member is working on, per ticket:
+// { text, tone, message, messageType }
+const replyState = {};
 
 // --------------------------------------------------
 // UTILITIES
@@ -56,6 +66,28 @@ function setLoginMessage(id, message, type) {
     if (!el) return;
     el.textContent = message;
     el.className = `login-message ${type}`.trim();
+}
+
+function setAccountMessage(message, type = "") {
+    const el = document.getElementById("accountMessage");
+    el.textContent = message;
+    el.className = `account-message ${type}`.trim();
+}
+
+function formatDate(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+}
+
+const isEmployee = () => currentUser?.role === "Employee";
+const isStaff    = () => currentUser?.role === "Support Staff";
+const isAdmin    = () => currentUser?.role === "Admin";
+
+function getReplyState(ticketId) {
+    const key = String(ticketId);
+    replyState[key] = replyState[key] || {};
+    return replyState[key];
 }
 
 // Tab switching
@@ -134,22 +166,77 @@ document.getElementById("signInForm").addEventListener("submit", async event => 
 // --------------------------------------------------
 
 function showDashboard(user) {
+    currentUser = user;
+
     document.getElementById("loginScreen").hidden = true;
     document.getElementById("dashboard").hidden   = false;
 
     document.getElementById("userAvatar").textContent = user.employee_id.slice(0, 2).toUpperCase();
     document.getElementById("userId").textContent     = user.employee_id;
-    document.getElementById("userRole").textContent   = user.department || user.role;
+    document.getElementById("userRole").textContent   =
+        user.account_type || user.department || user.role;
 
     initialiseDashboard();
+    applyRoleLayout();
     loadTickets();
+
+    if (isAdmin()) loadAccounts();
+}
+
+// What each kind of account sees.
+function applyRoleLayout() {
+    const $ = id => document.getElementById(id);
+    const employee = isEmployee();
+    const staff    = isStaff();
+    const admin    = isAdmin();
+
+    $("newTicketButton").hidden = !employee;
+    $("routingPanel").hidden    = !employee;
+    $("overviewGrid").hidden    = staff;
+    $("overviewGrid").classList.toggle("single", !employee);
+    $("accountsSection").hidden = !admin;
+    $("exportButton").hidden    = employee;
+    $("actionHeader").textContent = employee ? "Priority" : "Action";
+
+    if (employee) {
+        $("pageEyebrow").textContent     = "MY SUPPORT";
+        $("pageTitle").textContent       = "My support workspace";
+        $("pageDescription").textContent =
+            "Submit a request and follow the replies from our support teams.";
+        $("ticketsTitle").textContent    = "My support tickets";
+        $("ticketsDescription").textContent =
+            "Your requests. Replies from support appear underneath each ticket.";
+    } else if (staff) {
+        const department = currentUser.department || "Support";
+        $("pageEyebrow").textContent     = `${department.toUpperCase()} TEAM`;
+        $("pageTitle").textContent       = `${department} support workspace`;
+        $("pageDescription").textContent =
+            "Review the requests sent to your team, draft a reply with AI in the " +
+            "tone you choose, and send it to the employee.";
+        $("ticketsTitle").textContent    = `${department} tickets`;
+        $("ticketsDescription").textContent =
+            "Open a ticket with Reply to write back to the employee.";
+    } else {
+        $("pageEyebrow").textContent     = "ADMINISTRATOR";
+        $("pageTitle").textContent       = "Administration";
+        $("pageDescription").textContent =
+            "See every ticket, reply to employees and manage accounts.";
+        $("ticketsTitle").textContent    = "All support tickets";
+        $("ticketsDescription").textContent =
+            "Review requests from every department and reply to employees.";
+    }
 }
 
 function initialiseDashboard() {
+    // The dashboard can be shown again after sign-out and sign-in, so
+    // only attach the listeners once.
+    if (dashboardReady) return;
+    dashboardReady = true;
+
     const elements = {
         form:                 document.getElementById("ticketForm"),
         requester:            document.getElementById("requester"),
-        employeeDepartment: document.getElementById("employeeDepartment"),
+        employeeDepartment:   document.getElementById("employeeDepartment"),
         subject:              document.getElementById("subject"),
         description:          document.getElementById("description"),
         formMessage:          document.getElementById("formMessage"),
@@ -163,7 +250,7 @@ function initialiseDashboard() {
         ticketsTableBody:     document.getElementById("ticketsTableBody"),
         ticketsMessage:       document.getElementById("ticketsMessage"),
         ticketCountLabel:     document.getElementById("ticketCountLabel"),
-        departmentBreakdown: document.getElementById("departmentBreakdown"),
+        departmentBreakdown:  document.getElementById("departmentBreakdown"),
         totalTickets:         document.getElementById("totalTickets"),
         openTickets:          document.getElementById("openTickets"),
         inProgressTickets:    document.getElementById("inProgressTickets"),
@@ -188,10 +275,52 @@ function initialiseDashboard() {
         window.location.href = `${API_URL}/export`;
     });
 
+    // Status dropdown and tone dropdown
     elements.ticketsTableBody.addEventListener("change", event => {
-        const select = event.target.closest(".status-select");
-        if (!select) return;
-        updateTicketStatus(select.dataset.ticketId, select.value);
+        const statusSelect = event.target.closest(".status-select");
+        if (statusSelect) {
+            updateTicketStatus(statusSelect.dataset.ticketId, statusSelect.value);
+            return;
+        }
+
+        const toneSelect = event.target.closest(".tone-select");
+        if (toneSelect) {
+            getReplyState(toneSelect.dataset.ticketId).tone = toneSelect.value;
+        }
+    });
+
+    // Keep what staff are typing, so a refresh of the table never loses it.
+    elements.ticketsTableBody.addEventListener("input", event => {
+        const box = event.target.closest(".reply-text");
+        if (box) getReplyState(box.dataset.ticketId).text = box.value;
+    });
+
+    // Reply / Generate / Send buttons
+    elements.ticketsTableBody.addEventListener("click", event => {
+        const toggle = event.target.closest(".reply-toggle");
+        if (toggle) {
+            toggleReplyPanel(toggle.dataset.ticketId);
+            return;
+        }
+
+        const generate = event.target.closest(".generate-draft");
+        if (generate) {
+            generateDraft(generate.dataset.ticketId, generate);
+            return;
+        }
+
+        const send = event.target.closest(".send-reply");
+        if (send) {
+            sendReply(send.dataset.ticketId, send.dataset.responseId, send);
+        }
+    });
+
+    // Administrator: accounts
+    document.getElementById("accountForm").addEventListener("submit", createAccount);
+    document.getElementById("accountsTableBody").addEventListener("click", event => {
+        const button = event.target.closest(".account-toggle");
+        if (!button) return;
+        setAccountActive(button.dataset.employeeId, button.dataset.active !== "true");
     });
 
     document.getElementById("logoutButton").addEventListener("click", async () => {
@@ -200,11 +329,19 @@ function initialiseDashboard() {
         } catch (e) {
             // ignore logout error
         }
+
         document.getElementById("dashboard").hidden   = true;
         document.getElementById("loginScreen").hidden = false;
         document.getElementById("signInForm").reset();
         setLoginMessage("signInMessage", "", "");
+
+        currentUser = null;
         tickets = [];
+        expandedTickets.clear();
+        Object.keys(replyState).forEach(key => delete replyState[key]);
+
+        elements.ticketsTableBody.innerHTML =
+            '<tr><td colspan="6" class="empty-state">Loading tickets...</td></tr>';
     });
 }
 
@@ -220,6 +357,7 @@ async function loadTickets() {
         tickets = Array.isArray(data.tickets) ? data.tickets : [];
         tickets = tickets.map(t => ({ ...t, status: normaliseStatus(t.status) }));
 
+        showMessage(el.ticketsMessage, "");
         renderDashboard();
         renderDepartmentFilter();
         renderTickets();
@@ -310,6 +448,190 @@ function getFilteredTickets() {
     });
 }
 
+// ---------- one message (acknowledgement or reply) ----------
+
+function messageHTML(response, ticket) {
+    const isAck  = response.response_type === "Acknowledgement";
+    const label  = isAck
+        ? "Automatic acknowledgement"
+        : `Reply from ${ticket.department} support`;
+    const sender = !isAck && response.sent_by ? ` · sent by ${response.sent_by}` : "";
+    const when   = formatDate(response.sent_at);
+
+    return `
+        <div class="message ${isAck ? "message-auto" : "message-reply"}">
+            <div class="message-meta">
+                <strong>${escapeHTML(label)}</strong>${escapeHTML(sender)}${when ? ` · ${escapeHTML(when)}` : ""}
+            </div>
+            <div class="message-body">${escapeHTML(response.text)}</div>
+        </div>`;
+}
+
+// Messages that have actually been sent to the employee.
+function sentMessages(ticket) {
+    return (ticket.responses || []).filter(
+        r => r.status === undefined || r.status === "Sent"
+    );
+}
+
+// ---------- employee: messages directly underneath the ticket ----------
+
+function messagesRowHTML(ticket) {
+    const messages = sentMessages(ticket);
+    if (messages.length === 0) return "";
+
+    const hasReply = messages.some(m => m.response_type !== "Acknowledgement");
+
+    return `
+        <tr class="messages-row">
+            <td colspan="6">
+                <div class="message-list">
+                    ${messages.map(m => messageHTML(m, ticket)).join("")}
+                    ${hasReply ? "" : `<p class="message-waiting">
+                        A support team member will review your request and reply here.
+                    </p>`}
+                </div>
+            </td>
+        </tr>`;
+}
+
+// ---------- staff / admin: reply panel ----------
+
+function replyPanelHTML(ticket) {
+    const id        = escapeHTML(ticket.id);
+    const responses = ticket.responses || [];
+    const sent      = sentMessages(ticket);
+    const draft     = [...responses].reverse().find(
+        r => r.status === "Draft" && r.response_type === "Reply"
+    );
+
+    const state = getReplyState(ticket.id);
+    const tone  = state.tone || draft?.tone || "Formal";
+    const text  = state.text != null ? state.text : (draft ? draft.text : "");
+
+    const toneOptions = TONES.map(t =>
+        `<option value="${t}" ${t === tone ? "selected" : ""}>${t}</option>`
+    ).join("");
+
+    let draftNote = "";
+    if (draft) {
+        draftNote = draft.ai_generated
+            ? `Draft written by AI in the ${draft.tone || "chosen"} tone. Please review and edit it before sending.`
+            : "Template draft (the AI was unavailable). Please review and edit it before sending.";
+    }
+
+    return `
+        <tr class="detail-row">
+            <td colspan="6">
+                <div class="reply-panel">
+                    ${ticket.priority === "Urgent" ? `
+                        <p class="urgent-note">
+                            Urgent ticket. A person must review this before any reply is sent.
+                        </p>` : ""}
+
+                    <div class="reply-request">
+                        <strong>${escapeHTML(ticket.subject)}</strong>
+                        <p>${escapeHTML(ticket.description)}</p>
+                    </div>
+
+                    ${sent.length ? `
+                        <div class="message-list">
+                            ${sent.map(m => messageHTML(m, ticket)).join("")}
+                        </div>` : ""}
+
+                    <div class="reply-controls">
+                        <label for="tone-${id}">Tone for the AI draft</label>
+                        <select class="tone-select" id="tone-${id}" data-ticket-id="${id}">
+                            ${toneOptions}
+                        </select>
+                        <button type="button" class="button button-secondary generate-draft"
+                                data-ticket-id="${id}">
+                            ${draft ? "Generate again" : "Generate AI draft"}
+                        </button>
+                    </div>
+
+                    ${draftNote ? `<p class="draft-note">${escapeHTML(draftNote)}</p>` : ""}
+
+                    <label for="reply-${id}">Reply to the employee</label>
+                    <textarea class="reply-text" id="reply-${id}" data-ticket-id="${id}" rows="6"
+                              placeholder="Generate an AI draft, or type your own reply...">${escapeHTML(text)}</textarea>
+
+                    <p class="reply-message ${escapeHTML(state.messageType || "")}" role="status">${escapeHTML(state.message || "")}</p>
+
+                    <div class="reply-actions">
+                        <button type="button" class="button button-primary send-reply"
+                                data-ticket-id="${id}"
+                                data-response-id="${draft ? escapeHTML(draft.response_id) : ""}">
+                            Send to employee
+                        </button>
+                    </div>
+                </div>
+            </td>
+        </tr>`;
+}
+
+function ticketRowHTML(ticket) {
+    const status      = normaliseStatus(ticket.status);
+    const statusClass = status.toLowerCase().replace(/\s+/g, "-");
+    const priority    = ticket.priority || "Medium";
+    const priorityKey = String(priority).toLowerCase();
+    const open        = expandedTickets.has(String(ticket.id));
+
+    let actionCell;
+
+    if (isEmployee()) {
+        actionCell = `<span class="priority-badge priority-${escapeHTML(priorityKey)}">${escapeHTML(priority)}</span>`;
+    } else if (ticket.id == null) {
+        actionCell = '<span class="muted">Unavailable</span>';
+    } else {
+        const options = ["Open", "In Progress", "Resolved"].map(o =>
+            `<option value="${o}" ${status === o ? "selected" : ""}>${o}</option>`
+        ).join("");
+
+        actionCell = `
+            <div class="action-stack">
+                <select class="status-select"
+                        data-ticket-id="${escapeHTML(ticket.id)}"
+                        aria-label="Change status for ${escapeHTML(ticket.ticket_number)}">
+                    ${options}
+                </select>
+                <button type="button" class="button button-secondary button-sm reply-toggle"
+                        data-ticket-id="${escapeHTML(ticket.id)}">
+                    ${open ? "Close" : "Reply"}
+                </button>
+            </div>`;
+    }
+
+    const departmentCell = isEmployee()
+        ? escapeHTML(ticket.department || "Unassigned")
+        : `${escapeHTML(ticket.department || "Unassigned")}
+           <span class="cell-sub priority-line priority-${escapeHTML(priorityKey)}">Priority: ${escapeHTML(priority)}</span>`;
+
+    let html = `
+        <tr>
+            <td><span class="ticket-id">${escapeHTML(ticket.ticket_number || `CC-${ticket.id ?? "New"}`)}</span></td>
+            <td>
+                <span class="cell-main">${escapeHTML(ticket.requester || "Not provided")}</span>
+                <span class="cell-sub">${escapeHTML(ticket.employee_department || "")}</span>
+            </td>
+            <td>
+                <span class="cell-main">${escapeHTML(ticket.subject || "Support request")}</span>
+                <span class="cell-sub">${escapeHTML(ticket.description || "")}</span>
+            </td>
+            <td>${departmentCell}</td>
+            <td><span class="status-badge status-${statusClass}">${escapeHTML(status)}</span></td>
+            <td>${actionCell}</td>
+        </tr>`;
+
+    if (isEmployee()) {
+        html += messagesRowHTML(ticket);
+    } else if (open && ticket.id != null) {
+        html += replyPanelHTML(ticket);
+    }
+
+    return html;
+}
+
 function renderTickets() {
     const el = window._el;
     const filtered = getFilteredTickets();
@@ -318,41 +640,101 @@ function renderTickets() {
         el.ticketsTableBody.innerHTML = `
             <tr><td colspan="6" class="empty-state">No matching tickets found.</td></tr>`;
     } else {
-        el.ticketsTableBody.innerHTML = filtered.map(ticket => {
-            const status      = normaliseStatus(ticket.status);
-            const statusClass = status.toLowerCase().replace(/\s+/g, "-");
-            const options     = ["Open", "In Progress", "Resolved"].map(o =>
-                `<option value="${o}" ${status === o ? "selected" : ""}>${o}</option>`
-            ).join("");
-
-            return `
-                <tr>
-                    <td><span class="ticket-id">${escapeHTML(ticket.ticket_number || `CC-${ticket.id ?? "New"}`)}</span></td>
-                    <td>
-                        <span class="cell-main">${escapeHTML(ticket.requester || "Not provided")}</span>
-                        <span class="cell-sub">${escapeHTML(ticket.employee_department || "")}</span>
-                    </td>
-                    <td>
-                        <span class="cell-main">${escapeHTML(ticket.subject || "Support request")}</span>
-                        <span class="cell-sub">${escapeHTML(ticket.description || "")}</span>
-                    </td>
-                    <td>${escapeHTML(ticket.department || "Unassigned")}</td>
-                    <td><span class="status-badge status-${statusClass}">${escapeHTML(status)}</span></td>
-                    <td>
-                        ${ticket.id == null
-                            ? '<span class="muted">Unavailable</span>'
-                            : `<select class="status-select"
-                                       data-ticket-id="${escapeHTML(ticket.id)}"
-                                       aria-label="Change status for ${escapeHTML(ticket.ticket_number)}">
-                                    ${options}
-                               </select>`}
-                    </td>
-                </tr>`;
-        }).join("");
+        el.ticketsTableBody.innerHTML = filtered.map(ticketRowHTML).join("");
     }
 
     el.ticketCountLabel.textContent =
         `${filtered.length} of ${tickets.length} ${tickets.length === 1 ? "ticket" : "tickets"}`;
+
+    syncWrapWidth();
+}
+
+// Tell the stylesheet how wide the visible table area is, so replies
+// stay readable on a phone instead of scrolling sideways with the table.
+function syncWrapWidth() {
+    const wrap = document.querySelector("#ticketsSection .table-wrap");
+    if (wrap && wrap.clientWidth > 0) {
+        document.documentElement.style.setProperty("--wrap-width", `${wrap.clientWidth}px`);
+    }
+}
+
+window.addEventListener("resize", syncWrapWidth);
+
+function toggleReplyPanel(ticketId) {
+    const key = String(ticketId);
+
+    if (expandedTickets.has(key)) {
+        expandedTickets.delete(key);
+    } else {
+        expandedTickets.add(key);
+    }
+
+    renderTickets();
+}
+
+// Staff pick a tone and Gemini writes a draft in it.
+async function generateDraft(ticketId, button) {
+    const state = getReplyState(ticketId);
+    const toneBox = document.getElementById(`tone-${ticketId}`);
+    const tone = toneBox ? toneBox.value : (state.tone || "Formal");
+
+    state.tone = tone;
+    button.disabled = true;
+    button.textContent = "Generating... this can take a minute if Google is busy";
+
+    try {
+        const data = await apiRequest(`${API_URL}/${encodeURIComponent(ticketId)}/draft`, {
+            method: "POST",
+            body: JSON.stringify({ tone })
+        });
+
+        state.text        = null; // show the new draft
+        state.message     = data.warning || "Draft ready. Review it, edit it and send it.";
+        state.messageType = data.warning ? "warning" : "success";
+    } catch (error) {
+        state.message     = error.message || "Could not create a draft.";
+        state.messageType = "error";
+    }
+
+    await loadTickets();
+}
+
+// Send the reply (edited draft, or one typed from scratch).
+async function sendReply(ticketId, responseId, button) {
+    const state = getReplyState(ticketId);
+    const box = document.getElementById(`reply-${ticketId}`);
+    const finalText = box ? box.value.trim() : "";
+
+    if (!finalText) {
+        state.message     = "Write a reply or generate a draft first.";
+        state.messageType = "error";
+        renderTickets();
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Sending...";
+
+    const body = { final_text: finalText };
+    if (responseId) body.response_id = Number(responseId);
+
+    try {
+        await apiRequest(`${API_URL}/${encodeURIComponent(ticketId)}/reply`, {
+            method: "POST",
+            body: JSON.stringify(body)
+        });
+
+        replyState[String(ticketId)] = {
+            tone:        state.tone,
+            message:     "Reply sent. The employee can now see it under their ticket.",
+            messageType: "success"
+        };
+    } catch (error) {
+        state.message     = error.message || "Could not send the reply.";
+        state.messageType = "error";
+    }
+
+    await loadTickets();
 }
 
 function suggestDepartment(text) {
@@ -397,7 +779,12 @@ async function submitTicket(event) {
 
     try {
         const data = await apiRequest(API_URL, { method: "POST", body: JSON.stringify(ticketData) });
-        showMessage(el.formMessage, `Ticket ${data.ticket?.ticket_number || ""} submitted successfully.`, "success");
+        showMessage(
+            el.formMessage,
+            `Ticket ${data.ticket?.ticket_number || ""} submitted. ` +
+            "Your acknowledgement is shown underneath the ticket below.",
+            "success"
+        );
         el.form.reset();
         updateRoutingPreview();
         await loadTickets();
@@ -424,6 +811,105 @@ async function updateTicketStatus(ticketId, status) {
         showMessage(el.ticketsMessage, error.message || "Could not update ticket status.", "error");
         await loadTickets();
     }
+}
+
+// --------------------------------------------------
+// ADMINISTRATOR: ACCOUNTS
+// --------------------------------------------------
+
+async function loadAccounts() {
+    const body = document.getElementById("accountsTableBody");
+
+    try {
+        const data = await apiRequest("/api/admin/accounts");
+        renderAccounts(Array.isArray(data.accounts) ? data.accounts : []);
+    } catch (error) {
+        body.innerHTML = `
+            <tr><td colspan="4" class="empty-state">
+                Could not load accounts. ${escapeHTML(error.message)}
+            </td></tr>`;
+    }
+}
+
+function renderAccounts(accounts) {
+    const body = document.getElementById("accountsTableBody");
+
+    if (accounts.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" class="empty-state">No accounts yet.</td></tr>';
+        return;
+    }
+
+    body.innerHTML = accounts.map(account => {
+        const active = Boolean(account.is_active);
+        const isYou  = account.employee_id === currentUser?.employee_id;
+
+        return `
+            <tr>
+                <td><span class="cell-main">${escapeHTML(account.employee_id)}</span></td>
+                <td>${escapeHTML(account.account_type || account.role)}</td>
+                <td><span class="account-status ${active ? "active" : "inactive"}">${active ? "Active" : "Deactivated"}</span></td>
+                <td>
+                    ${isYou
+                        ? '<span class="muted">This is you</span>'
+                        : `<button type="button" class="button button-secondary button-sm account-toggle"
+                                   data-employee-id="${escapeHTML(account.employee_id)}"
+                                   data-active="${active}">
+                               ${active ? "Deactivate" : "Reactivate"}
+                           </button>`}
+                </td>
+            </tr>`;
+    }).join("");
+}
+
+async function createAccount(event) {
+    event.preventDefault();
+
+    const idBox   = document.getElementById("accountId");
+    const typeBox = document.getElementById("accountType");
+    const pwBox   = document.getElementById("accountPassword");
+
+    setAccountMessage("");
+
+    try {
+        const data = await apiRequest("/api/admin/accounts", {
+            method: "POST",
+            body: JSON.stringify({
+                employee_id:  idBox.value.trim(),
+                password:     pwBox.value,
+                account_type: typeBox.value
+            })
+        });
+
+        setAccountMessage(
+            `Account ${data.account.employee_id} created (${data.account.account_type}).`,
+            "success"
+        );
+        idBox.value = "";
+        pwBox.value = "";
+        await loadAccounts();
+    } catch (error) {
+        setAccountMessage(error.message || "Could not create the account.", "error");
+    }
+}
+
+async function setAccountActive(employeeId, active) {
+    setAccountMessage("");
+
+    try {
+        await apiRequest(`/api/admin/accounts/${encodeURIComponent(employeeId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ is_active: active })
+        });
+
+        setAccountMessage(
+            `Account ${employeeId} ${active ? "reactivated" : "deactivated"}.`,
+            "success"
+        );
+    } catch (error) {
+        setAccountMessage(error.message || "Could not update the account.", "error");
+    }
+
+    await loadAccounts();
 }
 
 // --------------------------------------------------

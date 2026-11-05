@@ -1,0 +1,189 @@
+/* Extra styles for replies, staff tools and account management.
+   Loaded after stylesheet.css, so it only adds to it. */
+
+[hidden] { display: none !important; }
+
+/* Admin sees one panel in the overview row, so let it use the full width. */
+.overview-grid.single { grid-template-columns: 1fr; }
+
+/* ---------- Priority ---------- */
+
+.priority-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: #eef1f6;
+    color: #44506a;
+}
+.priority-badge.priority-urgent { background: #fde8e8; color: #a31d1d; }
+.priority-badge.priority-high   { background: #fff1de; color: #9a5b00; }
+.priority-badge.priority-medium { background: #e8f0fe; color: #1f4fa8; }
+.priority-badge.priority-low    { background: #e9f6ee; color: #1d6b3c; }
+
+.priority-line { font-weight: 600; }
+.priority-line.priority-urgent { color: #a31d1d; }
+.priority-line.priority-high   { color: #9a5b00; }
+
+/* ---------- Staff action cell ---------- */
+
+.action-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+}
+
+/* ---------- Messages under a ticket ---------- */
+
+tr.messages-row > td,
+tr.detail-row > td {
+    padding: 0 16px 16px;
+    border-top: 0;
+    background: transparent;
+}
+
+.message-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+/* On narrow screens the table scrolls sideways. Keep messages and the
+   reply panel pinned to the visible width instead of the whole table.
+   --wrap-width is set by script.js. */
+.message-list,
+.message-waiting,
+.reply-panel {
+    position: sticky;
+    left: 16px;
+    box-sizing: border-box;
+    width: calc(var(--wrap-width, 100%) - 32px);
+}
+
+.message {
+    border: 1px solid #dfe5ee;
+    border-left-width: 4px;
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: #f7f9fc;
+}
+.message-auto  { border-left-color: #9aa7bd; }
+.message-reply { border-left-color: #2f6fed; background: #f2f7ff; }
+
+.message-meta {
+    font-size: 0.8rem;
+    color: #5b6578;
+    margin-bottom: 4px;
+}
+.message-meta strong { color: #26314a; }
+
+.message-body {
+    white-space: pre-wrap;
+    line-height: 1.5;
+    font-size: 0.92rem;
+}
+
+.message-waiting {
+    font-size: 0.85rem;
+    color: #5b6578;
+    font-style: italic;
+    margin: 2px 2px 0;
+}
+
+/* ---------- Staff reply panel ---------- */
+
+.reply-panel {
+    border: 1px solid #dfe5ee;
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Inside the reply panel the list already sits within the panel's width. */
+.reply-panel .message-list {
+    position: static;
+    width: auto;
+}
+
+.reply-request {
+    background: #f7f9fc;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.92rem;
+}
+.reply-request p { margin: 4px 0 0; white-space: pre-wrap; }
+
+.urgent-note {
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #fde8e8;
+    color: #7f1515;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.reply-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+.reply-controls label { font-weight: 600; font-size: 0.9rem; }
+
+.reply-panel textarea {
+    width: 100%;
+    min-height: 140px;
+    resize: vertical;
+    box-sizing: border-box;
+    font: inherit;
+    line-height: 1.5;
+}
+
+.draft-note { margin: 0; font-size: 0.85rem; color: #5b6578; }
+
+.reply-message { margin: 0; min-height: 1.2em; font-size: 0.88rem; }
+.reply-message.success { color: #1d6b3c; }
+.reply-message.warning { color: #9a5b00; }
+.reply-message.error   { color: #a31d1d; }
+
+.reply-actions { display: flex; justify-content: flex-end; }
+
+/* ---------- Accounts (administrator) ---------- */
+
+.accounts-panel { margin-top: 24px; }
+
+.account-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 8px;
+}
+.account-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 180px;
+    flex: 1 1 180px;
+}
+.account-field label { font-size: 0.85rem; font-weight: 600; }
+
+.account-message { min-height: 1.2em; margin: 4px 0 12px; font-size: 0.9rem; }
+.account-message.success { color: #1d6b3c; }
+.account-message.error   { color: #a31d1d; }
+
+.account-status { font-weight: 600; }
+.account-status.active   { color: #1d6b3c; }
+.account-status.inactive { color: #a31d1d; }
+
+@media (max-width: 640px) {
+    .reply-actions { justify-content: stretch; }
+    .reply-actions .button { width: 100%; }
+}
