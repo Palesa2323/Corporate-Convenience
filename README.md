@@ -4,6 +4,7 @@
 
 ## About the Project
 
+Live Demo: https://corporate-convenience-1-d5sc.onrender.com
 Corporate Convenience is an AI-powered workplace ticket management system designed to simplify how employees report workplace issues and communicate with the relevant departments.
 
 The system uses machine learning and automated response generation to classify employee requests, identify the appropriate department and generate professional responses.
