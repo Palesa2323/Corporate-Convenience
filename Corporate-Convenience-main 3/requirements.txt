@@ -1,0 +1,8 @@
+pandas
+scikit-learn
+joblib
+flask
+streamlit
+gunicorn
+google-genai
+python-dotenv

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corporate Convenience | Support Workspace</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='stylesheet.css') }}">
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='extras.css') }}">
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-card">
+            <div class="login-brand">
+                <span class="brand-mark">CC</span>
+                <div>
+                    <strong>Corporate Convenience</strong>
+                    <small>Employee Support Workspace</small>
+                </div>
+            </div>
+
+            <div class="login-tabs">
+                <button class="login-tab active" id="tabSignIn">Sign in</button>
+                <button class="login-tab" id="tabRegister">Register</button>
+            </div>
+
+            <form id="signInForm" class="login-form" novalidate>
+                <div class="login-field">
+                    <label for="loginEmployeeId">Employee ID</label>
+                    <input id="loginEmployeeId" type="text"
+                           placeholder="e.g. EMP001" autocomplete="username" required>
+                </div>
+                <div class="login-field">
+                    <label for="loginPassword">Password</label>
+                    <input id="loginPassword" type="password"
+                           placeholder="Enter your password" autocomplete="current-password" required>
+                </div>
+                <p id="signInMessage" class="login-message" role="status"></p>
+                <button type="submit" class="button button-primary button-full">Sign in</button>
+            </form>
+
+            <form id="registerForm" class="login-form" hidden novalidate>
+                <div class="login-field">
+                    <label for="regEmployeeId">Employee ID</label>
+                    <input id="regEmployeeId" type="text"
+                           placeholder="e.g. EMP001" autocomplete="username" required>
+                </div>
+                <div class="login-field">
+                    <label for="regDepartment">Department</label>
+                    <select id="regDepartment" required>
+                        <option value="">Select your department</option>
+                        <option value="IT">IT Support</option>
+                        <option value="HR">Human Resources</option>
+                        <option value="Operations">Operations</option>
+                        <option value="Finance">Finance</option>
+                    </select>
+                </div>
+                <div class="login-field">
+                    <label for="regPassword">Password</label>
+                    <input id="regPassword" type="password"
+                           placeholder="Create a password" autocomplete="new-password" required>
+                </div>
+                <div class="login-field">
+                    <label for="regConfirm">Confirm password</label>
+                    <input id="regConfirm" type="password"
+                           placeholder="Repeat your password" autocomplete="new-password" required>
+                </div>
+                <p id="registerMessage" class="login-message" role="status"></p>
+                <button type="submit" class="button button-primary button-full">Create account</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard" class="app-shell" hidden>
+        <header class="app-header">
+            <a class="brand" href="/">
+                <span class="brand-mark">CC</span>
+                <span>
+                    <strong>Corporate Convenience</strong>
+                    <small>Employee Support Workspace</small>
+                </span>
+            </a>
+
+            <div class="header-right">
+                <div class="header-status">
+                    <span class="status-dot"></span>
+                    Support Operations
+                </div>
+                <div class="user-profile" id="userProfile">
+                    <span class="user-avatar" id="userAvatar"></span>
+                    <div class="user-info">
+                        <span class="user-id" id="userId"></span>
+                        <span class="user-role" id="userRole"></span>
+                    </div>
+                    <button class="button button-secondary button-sm" id="logoutButton">
+                        Sign out
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow" id="pageEyebrow">SUPPORT OPERATIONS</p>
+                    <h1 id="pageTitle">Support workspace</h1>
+                    <p class="page-description" id="pageDescription">
+                        Submit, classify and route employee support requests
+                        to the right department.
+                    </p>
+                </div>
+
+                <button class="button button-primary" id="newTicketButton">
+                    <span aria-hidden="true">+</span> New ticket
+                </button>
+            </section>
+
+            <section class="stats-grid" aria-label="Ticket summary">
+                <article class="stat-card">
+                    <span class="stat-label">Total tickets</span>
+                    <strong class="stat-number" id="totalTickets">0</strong>
+                    <span class="stat-note">All submitted requests</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">Open</span>
+                    <strong class="stat-number" id="openTickets">0</strong>
+                    <span class="stat-note">Awaiting action</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">In progress</span>
+                    <strong class="stat-number" id="inProgressTickets">0</strong>
+                    <span class="stat-note">Being addressed</span>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-label">Resolved</span>
+                    <strong class="stat-number" id="resolvedTickets">0</strong>
+                    <span class="stat-note">Completed requests</span>
+                </article>
+            </section>
+
+            <!-- ANALYTICS: visible to Support Staff and Administrators only -->
+            <section class="analytics-section" id="analyticsSection" hidden>
+                <div class="analytics-heading">
+                    <div>
+                        <p class="eyebrow">DATA TRACKING &amp; ANALYTICS</p>
+                        <h2>Analytics &amp; Insights</h2>
+                        <p class="page-description" id="analyticsScope">
+                            Monitor ticket activity, response times and support trends.
+                        </p>
+                    </div>
+                    <label class="period-control" for="analyticsPeriod">
+                        Reporting period
+                        <select id="analyticsPeriod">
+                            <option value="7">Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="stats-grid analytics-stats">
+                    <article class="stat-card">
+                        <span class="stat-label">Tickets in period</span>
+                        <strong class="stat-number" id="analyticsTotal">0</strong>
+                        <span class="stat-note">New support requests</span>
+                    </article>
+                    <article class="stat-card">
+                        <span class="stat-label">Open tickets</span>
+                        <strong class="stat-number" id="analyticsOpen">0</strong>
+                        <span class="stat-note">Awaiting action</span>
+                    </article>
+                    <article class="stat-card">
+                        <span class="stat-label">Resolved tickets</span>
+                        <strong class="stat-number" id="analyticsResolved">0</strong>
+                        <span class="stat-note">Marked as resolved</span>
+                    </article>
+                    <article class="stat-card">
+                        <span class="stat-label">Average first response</span>
+                        <strong class="stat-number" id="analyticsResponse">—</strong>
+                        <span class="stat-note" id="analyticsResponseNote">Based on sent staff replies</span>
+                    </article>
+                </div>
+
+                <div class="analytics-grid">
+                    <article class="panel chart-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Ticket volume over time</h2>
+                                <p>Number of tickets submitted each day.</p>
+                            </div>
+                        </div>
+                        <div class="chart-container"><canvas id="ticketTrendChart" aria-label="Ticket volume over time"></canvas></div>
+                    </article>
+                    <article class="panel chart-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Tickets by department</h2>
+                                <p>Which teams receive the most requests?</p>
+                            </div>
+                        </div>
+                        <div class="chart-container"><canvas id="departmentChart" aria-label="Tickets by department"></canvas></div>
+                    </article>
+                    <article class="panel chart-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Ticket status</h2>
+                                <p>Current status of tickets submitted in this period.</p>
+                            </div>
+                        </div>
+                        <div class="chart-container chart-container-small"><canvas id="statusChart" aria-label="Tickets by status"></canvas></div>
+                    </article>
+                    <article class="panel chart-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Average response time</h2>
+                                <p>Time from ticket submission to the first staff-approved reply.</p>
+                            </div>
+                        </div>
+                        <div class="chart-container"><canvas id="responseChart" aria-label="Average response time by department"></canvas></div>
+                    </article>
+                </div>
+
+                <article class="panel insights-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Weekly summary insights</h2>
+                            <p id="insightsPeriodLabel">A plain-language summary of the selected reporting period.</p>
+                        </div>
+                    </div>
+                    <ul id="weeklyInsights" class="insights-list">
+                        <li>Loading insights...</li>
+                    </ul>
+                </article>
+                <p class="analytics-footnote">
+                    Response time excludes automatic acknowledgements. It is calculated only when a support staff reply has been sent.
+                </p>
+                <p id="analyticsMessage" class="tickets-message" role="status"></p>
+            </section>
+
+            <section class="overview-grid" id="overviewGrid">
+                <article class="panel department-panel" id="departmentPanel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Tickets by department</h2>
+                            <p>See how requests are distributed across your organisation.</p>
+                        </div>
+                    </div>
+                    <div id="departmentBreakdown" class="department-breakdown">
+                        <p class="muted">Loading department data...</p>
+                    </div>
+                </article>
+
+                <article class="panel routing-panel" id="routingPanel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Create a support ticket</h2>
+                            <p>Describe the issue and let the system suggest a department.</p>
+                        </div>
+                    </div>
+
+                    <form id="ticketForm">
+                        <label for="requester">Employee name</label>
+                        <input id="requester" name="requester"
+                               type="text" placeholder="e.g. Palesa Gaetsewe" required>
+
+                        <label for="employeeDepartment">Employee department</label>
+                        <select id="employeeDepartment" name="employee_department" required>
+                            <option value="">Select your department</option>
+                            <option>Finance</option>
+                            <option>Human Resources</option>
+                            <option>IT</option>
+                            <option>Operations</option>
+                            <option>Marketing</option>
+                            <option>Sales</option>
+                            <option>Other</option>
+                        </select>
+
+                        <label for="subject">Subject</label>
+                        <input id="subject" name="subject"
+                               type="text" placeholder="Briefly describe the issue" required>
+
+                        <label for="description">Issue description</label>
+                        <textarea id="description" name="description" rows="4"
+                                  placeholder="Explain what happened and what help you need..."
+                                  required></textarea>
+
+                        <div class="routing-preview">
+                            <span class="preview-icon" aria-hidden="true">✦</span>
+                            <div>
+                                <strong>Smart routing</strong>
+                                <p id="routingPreview">
+                                    Add an issue description to prepare your request.
+                                </p>
+                            </div>
+                        </div>
+
+                        <p id="formMessage" class="form-message" role="status"></p>
+
+                        <button class="button button-primary button-full"
+                                type="submit" id="submitTicketButton">
+                            Submit ticket
+                        </button>
+                    </form>
+                </article>
+            </section>
+
+            <section class="panel tickets-panel" id="ticketsSection">
+                <div class="panel-heading tickets-heading">
+                    <div>
+                        <h2 id="ticketsTitle">Support tickets</h2>
+                        <p id="ticketsDescription">Review requests and manage their current status.</p>
+                    </div>
+                    <button class="button button-secondary" id="exportButton">
+                        Export CSV
+                    </button>
+                </div>
+
+                <div class="toolbar">
+                    <div class="search-box">
+                        <span aria-hidden="true">⌕</span>
+                        <input id="searchInput" type="search"
+                               placeholder="Search tickets..." aria-label="Search tickets">
+                    </div>
+
+                    <select id="departmentFilter" aria-label="Filter by department">
+                        <option value="">All departments</option>
+                    </select>
+
+                    <select id="statusFilter" aria-label="Filter by status">
+                        <option value="">All statuses</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In progress</option>
+                        <option value="Resolved">Resolved</option>
+                    </select>
+                </div>
+
+                <div id="ticketsMessage" class="tickets-message" role="status"></div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Requester</th>
+                                <th>Subject</th>
+                                <th>Department</th>
+                                <th>Status</th>
+                                <th id="actionHeader">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticketsTableBody">
+                            <tr>
+                                <td colspan="6" class="empty-state">Loading tickets...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-footer" id="ticketCountLabel">0 tickets</div>
+            </section>
+
+            <!-- ADMINISTRATOR ONLY -->
+            <section class="panel accounts-panel" id="accountsSection" hidden>
+                <div class="panel-heading">
+                    <div>
+                        <h2>Accounts</h2>
+                        <p>Create IDs for support teams and administrators, and switch accounts on or off.</p>
+                    </div>
+                </div>
+
+                <form id="accountForm" class="account-form">
+                    <div class="account-field">
+                        <label for="accountId">Employee ID</label>
+                        <input id="accountId" type="text"
+                               placeholder="e.g. HR002" autocomplete="off" required>
+                    </div>
+                    <div class="account-field">
+                        <label for="accountType">Account type</label>
+                        <select id="accountType" required>
+                            <option value="Employee">Employee</option>
+                            <option value="IT">IT</option>
+                            <option value="Finance">Finance</option>
+                            <option value="HR">HR</option>
+                            <option value="Operations">Operations</option>
+                            <option value="Administrator">Administrator</option>
+                        </select>
+                    </div>
+                    <div class="account-field">
+                        <label for="accountPassword">Password</label>
+                        <input id="accountPassword" type="password"
+                               placeholder="At least 8 characters"
+                               autocomplete="new-password" required>
+                    </div>
+                    <button class="button button-primary" type="submit">Create account</button>
+                </form>
+
+                <p id="accountMessage" class="account-message" role="status"></p>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Employee ID</th>
+                                <th>Account type</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="accountsTableBody">
+                            <tr>
+                                <td colspan="4" class="empty-state">Loading accounts...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <span>Corporate Convenience</span>
+            <span>Smart support. Clear routing. Better service.</span>
+        </footer>
+    </div> <!-- end #dashboard -->
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</body>
+</html>
