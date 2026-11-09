@@ -473,10 +473,10 @@ async function loadAnalytics() {
 const departments = data.departments || [];
 
 const departmentColors = {
-    "Finance": "#58A58B",
-    "Operations": "#477DB5",
-    "IT Support": "#E5B54A",
-    "Human Resources": "#D98C9A"
+    "Finance": "#3B8F80",
+    "Operations": "#5686C5",
+    "IT Support": "#E69A45",
+    "Human Resources": "#A477B5"
 };
 
 drawAnalyticsChart(
