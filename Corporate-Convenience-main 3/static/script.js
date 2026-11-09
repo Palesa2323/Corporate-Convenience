@@ -468,19 +468,30 @@ async function loadAnalytics() {
                 tension: 0.3
             }]
         );
+        
 
-        const departments = data.departments || [];
-        drawAnalyticsChart(
-            "departmentChart",
-            "bar",
-            departments.map(item => item.department),
-            [{
-                label: "Tickets",
-                data: departments.map(item => item.count),
-                backgroundColor: "#246b66",
-                borderRadius: 6
-            }]
-        );
+const departments = data.departments || [];
+
+const departmentColors = {
+    "Finance": "#58A58B",
+    "Operations": "#477DB5",
+    "IT Support": "#E5B54A",
+    "Human Resources": "#D98C9A"
+};
+
+drawAnalyticsChart(
+    "departmentChart",
+    "bar",
+    departments.map(item => item.department),
+    [{
+        label: "Tickets",
+        data: departments.map(item => item.count),
+        backgroundColor: departments.map(item =>
+            departmentColors[item.department] || "#A0A0A0"
+        ),
+        borderRadius: 6
+    }]
+);
 
         const statuses = data.statuses || [];
         drawAnalyticsChart(
