@@ -1,8 +1,8 @@
 from flask import (
     Flask, jsonify, render_template, request,
-    Response, session
+    Response, session, send_file
 )
-
+from datetime import date
 from dotenv import load_dotenv
 import os
 import csv
@@ -28,11 +28,16 @@ from backend.database import (
     list_employees,
     update_employee,
     reset_password,
+    DEPARTMENTS,
+    verify_login,
+    register_employee_public,
 )
 from backend.response_generator import (
     classify_ticket,
     generate_response,
 )
+from backend.report_generator import generate_business_report
+from backend.pdf_generator import generate_pdf_report
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -753,6 +758,88 @@ def export_tickets():
     except Exception:
         app.logger.exception("Export failed")
         return jsonify({"error": "Unable to export tickets."}), 500
+
+
+@app.route("/api/reports/pdf", methods=["GET"])
+def download_business_report():
+    """Generate and download a PDF business report."""
+
+    user = get_logged_in_user()
+
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    role = session.get("role")
+    user_department = session.get("department")
+
+    if role not in {"Admin", "Support Staff"}:
+        return jsonify({
+            "error": "You are not authorised to access business reports."
+        }), 403
+
+    start_date = request.args.get("start_date", "").strip()
+    end_date = request.args.get("end_date", "").strip()
+
+    if not start_date or not end_date:
+        return jsonify({
+            "error": "Please provide a start date and end date."
+        }), 400
+
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+
+        if start > end:
+            return jsonify({
+                "error": "Start date cannot be after end date."
+            }), 400
+
+    except ValueError:
+        return jsonify({
+            "error": "Invalid date format. Use YYYY-MM-DD."
+        }), 400
+
+    if role == "Admin":
+        department = request.args.get("department", "All").strip()
+
+        if department != "All" and department not in DEPARTMENTS:
+            return jsonify({
+                "error": "Invalid department selected."
+            }), 400
+
+    else:
+        if not user_department or user_department not in DEPARTMENTS:
+            return jsonify({
+                "error": "No valid department assigned to your account."
+            }), 403
+
+        department = user_department
+
+    try:
+        report = generate_business_report(
+            start_date,
+            end_date,
+            department
+        )
+
+        pdf_path = generate_pdf_report(
+            report,
+            output_directory=BASE_DIR / "reports"
+        )
+
+        return send_file(
+            pdf_path,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=pdf_path.name
+        )
+
+    except Exception:
+        app.logger.exception("Business report generation failed.")
+
+        return jsonify({
+            "error": "Unable to generate the business report."
+        }), 500
 
 
 if __name__ == "__main__":

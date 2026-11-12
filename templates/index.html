@@ -267,6 +267,50 @@
                 <div class="table-footer" id="ticketCountLabel">0 tickets</div>
             </section>
 
+            
+<!-- BUSINESS REPORTS -->
+    <section class="panel reports-panel" id="businessReportsSection" hidden>
+        <div class="panel-heading">
+            <div>
+                <h2>Business Reports</h2>
+                <p>Generate historical performance reports and download them as PDF documents.</p>
+            </div>
+        </div>
+
+        <form id="reportForm" class="report-form">
+
+            <div class="report-field">
+                <label for="reportStartDate">Start date</label>
+                <input type="date" id="reportStartDate" required>
+            </div>
+
+            <div class="report-field">
+                <label for="reportEndDate">End date</label>
+                <input type="date" id="reportEndDate" required>
+            </div>
+
+            <div class="report-field" id="reportDepartmentField">
+                <label for="reportDepartment">Department</label>
+                <select id="reportDepartment">
+                    <option value="All">All departments</option>
+                    <option value="IT">IT</option>
+                    <option value="HR">HR</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Operations">Operations</option>
+                </select>
+            </div>
+
+            <button class="button button-primary" type="submit" id="generateReportButton">
+                Generate PDF Report
+            </button>
+
+        </form>
+
+        <p id="reportMessage" class="account-message" role="status"></p>
+    </section>
+    <!-- END BUSINESS REPORTS -->
+
+
             <!-- ADMINISTRATOR ONLY -->
             <section class="panel accounts-panel" id="accountsSection" hidden>
                 <div class="panel-heading">

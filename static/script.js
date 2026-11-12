@@ -54,6 +54,81 @@ async function apiRequest(url, options = {}) {
     return data;
 }
 
+async function downloadBusinessReport(event) {
+    event.preventDefault();
+
+    const startDate = document.getElementById("reportStartDate").value;
+    const endDate = document.getElementById("reportEndDate").value;
+    const department = document.getElementById("reportDepartment").value;
+
+    const message = document.getElementById("reportMessage");
+    const button = document.getElementById("generateReportButton");
+
+    if (!startDate || !endDate) {
+        message.textContent = "Please select both dates.";
+        return;
+    }
+
+    if (startDate > endDate) {
+        message.textContent = "The start date cannot be after the end date.";
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Generating report...";
+    message.textContent = "";
+
+    try {
+        const parameters = new URLSearchParams({
+            start_date: startDate,
+            end_date: endDate,
+            department: department
+        });
+
+        const response = await fetch(
+            `/api/reports/pdf?${parameters}`,
+            {
+                method: "GET",
+                credentials: "include"
+            }
+        );
+
+     if (!response.ok) {
+        let errorMessage = "Unable to generate the report.";
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+            errorMessage = `Report service unavailable (error ${response.status}). Restart the server and try again.`;
+        }
+        throw new Error(errorMessage);
+    }
+
+  
+        const pdfBlob = await response.blob();
+        const downloadUrl = URL.createObjectURL(pdfBlob);
+
+        const downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download =
+            `business_report_${department}_${startDate}_to_${endDate}.pdf`;
+
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+
+        URL.revokeObjectURL(downloadUrl);
+
+        message.textContent = "Your business report has been downloaded.";
+    } catch (error) {
+        console.error("Report generation error:", error);
+        message.textContent = error.message;
+    } finally {
+        button.disabled = false;
+        button.textContent = "Generate PDF Report";
+    }
+}
+
 function showMessage(element, message, type = "") {
     element.textContent = message;
     element.className = element.id === "formMessage"
@@ -195,6 +270,19 @@ function applyRoleLayout() {
     $("overviewGrid").hidden    = staff;
     $("overviewGrid").classList.toggle("single", !employee);
     $("accountsSection").hidden = !admin;
+    // Business reports: administrators and support staff only.
+    $("businessReportsSection").hidden = employee;
+
+    // Only administrators can choose a department.
+    $("reportDepartmentField").hidden = !admin;
+
+    // Support staff are restricted to their own department.
+    if (staff) {
+        $("reportDepartment").value = currentUser.department;
+        $("reportDepartment").disabled = true;
+    } else {
+        $("reportDepartment").disabled = false;
+    }
     $("exportButton").hidden    = employee;
     $("actionHeader").textContent = employee ? "Priority" : "Action";
 
@@ -254,7 +342,8 @@ function initialiseDashboard() {
         totalTickets:         document.getElementById("totalTickets"),
         openTickets:          document.getElementById("openTickets"),
         inProgressTickets:    document.getElementById("inProgressTickets"),
-        resolvedTickets:      document.getElementById("resolvedTickets")
+        resolvedTickets:      document.getElementById("resolvedTickets"),
+        reportForm:           document.getElementById("reportForm")
     };
 
     window._el = elements;
@@ -274,6 +363,8 @@ function initialiseDashboard() {
     elements.exportButton.addEventListener("click", () => {
         window.location.href = `${API_URL}/export`;
     });
+    // Business report PDF generation
+    elements.reportForm.addEventListener("submit", downloadBusinessReport);
 
     // Status dropdown and tone dropdown
     elements.ticketsTableBody.addEventListener("change", event => {

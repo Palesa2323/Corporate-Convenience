@@ -6,3 +6,4 @@ streamlit
 gunicorn
 google-genai
 python-dotenv
+reportlab
