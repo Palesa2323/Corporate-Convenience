@@ -74,7 +74,15 @@ def forecast_ticket_workload(days=30, forecast_days=7, department=None):
             "forecast": [],
             "message": "No historical ticket data available."
         }
-
+    if not any(values):
+        return {
+            "history": history,
+            "forecast": [],
+            "average_daily_tickets": 0,
+            "trend": "No activity",
+            "daily_change": 0,
+            "message": "No tickets were recorded during the selected period."
+        }
     # Calculate the average daily ticket volume.
     average = sum(values) / count
 
