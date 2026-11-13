@@ -309,7 +309,44 @@
         <p id="reportMessage" class="account-message" role="status"></p>
     </section>
     <!-- END BUSINESS REPORTS -->
+<!-- PREDICTIVE INSIGHTS -->
+<section class="panel reports-panel" id="predictiveInsightsSection" hidden>
 
+    <div class="panel-heading">
+        <div>
+            <h2>Predictive Insights</h2>
+            <p>Forecast future support workload using historical ticket data.</p>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <article class="stat-card">
+            <span class="stat-label">Average daily tickets</span>
+            <strong class="stat-number" id="averageDailyTickets">0</strong>
+        </article>
+
+        <article class="stat-card">
+            <span class="stat-label">Workload trend</span>
+            <strong class="stat-number" id="workloadTrend">-</strong>
+        </article>
+
+        <article class="stat-card">
+            <span class="stat-label">Daily change</span>
+            <strong class="stat-number" id="dailyChange">0</strong>
+        </article>
+    </div>
+
+    <div class="panel">
+        <h3>7-Day Ticket Forecast</h3>
+        <div id="forecastResults">
+            <p class="muted">Forecast data will appear here.</p>
+        </div>
+    </div>
+
+    <p id="predictiveInsightsMessage" role="status"></p>
+
+</section>
+<!-- END PREDICTIVE INSIGHTS -->
 
             <!-- ADMINISTRATOR ONLY -->
             <section class="panel accounts-panel" id="accountsSection" hidden>

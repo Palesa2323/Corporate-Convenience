@@ -37,6 +37,7 @@ from backend.response_generator import (
     generate_response,
 )
 from backend.report_generator import generate_business_report
+from backend.predictive_insights import forecast_ticket_workload
 from backend.pdf_generator import generate_pdf_report
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -840,7 +841,52 @@ def download_business_report():
         return jsonify({
             "error": "Unable to generate the business report."
         }), 500
+@app.route("/api/predictive-insights", methods=["GET"])
+def predictive_insights():
+    user = get_logged_in_user()
 
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    role = session.get("role")
+    user_department = session.get("department")
+
+    if role not in {"Admin", "Support Staff"}:
+        return jsonify({"error": "You are not authorised."}), 403
+
+    if role == "Admin":
+        department = request.args.get("department")
+
+        if department == "All":
+            department = None
+
+        if department and department not in DEPARTMENTS:
+            return jsonify({"error": "Invalid department."}), 400
+
+    else:
+        if not user_department:
+            return jsonify({"error": "No department assigned."}), 403
+
+        department = user_department
+
+    try:
+        days = int(request.args.get("days", 30))
+        forecast_days = int(request.args.get("forecast_days", 7))
+
+        result = forecast_ticket_workload(
+            days=days,
+            forecast_days=forecast_days,
+            department=department
+        )
+
+        return jsonify(result), 200
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Predictive insights failed")
+        return jsonify({"error": "Unable to generate forecast."}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False)
