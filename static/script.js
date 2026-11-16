@@ -255,7 +255,10 @@ function showDashboard(user) {
     applyRoleLayout();
     loadTickets();
 
+if (isAdmin() || isStaff()) loadPredictiveInsights();
+
     if (isAdmin()) loadAccounts();
+
 }
 
 // What each kind of account sees.
@@ -272,7 +275,8 @@ function applyRoleLayout() {
     $("accountsSection").hidden = !admin;
     // Business reports: administrators and support staff only.
     $("businessReportsSection").hidden = employee;
-
+// Predictive insights: administrators and support staff only.
+$("predictiveInsightsSection").hidden = employee;
     // Only administrators can choose a department.
     $("reportDepartmentField").hidden = !admin;
 
@@ -1017,5 +1021,56 @@ async function checkActiveSession() {
         // Not logged in, stay on login screen
     }
 }
+async function loadPredictiveInsights() {
+    const averageElement = document.getElementById("averageDailyTickets");
+    const trendElement = document.getElementById("workloadTrend");
+    const changeElement = document.getElementById("dailyChange");
+    const forecastElement = document.getElementById("forecastResults");
+    const messageElement = document.getElementById("predictiveInsightsMessage");
+
+    try {
+        messageElement.textContent = "Loading predictive insights...";
+
+        const data = await apiRequest("/api/predictive-insights");
+
+        averageElement.textContent = data.average_daily_tickets ?? 0;
+        trendElement.textContent = data.trend ?? "Unavailable";
+        changeElement.textContent = data.daily_change ?? 0;
+
+        const forecast = Array.isArray(data.forecast) ? data.forecast : [];
+
+        if (forecast.length === 0) {
+            forecastElement.innerHTML = `
+                <p class="muted">
+                    ${escapeHTML(data.message || "No forecast data available.")}
+                </p>`;
+        } else {
+            forecastElement.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Predicted tickets</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${forecast.map(item => `
+                            <tr>
+                                <td>${escapeHTML(item.date)}</td>
+                                <td>${Number(item.predicted_tickets) || 0}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>`;
+        }
+
+        messageElement.textContent = data.message || "Forecast loaded successfully.";
+
+    } catch (error) {
+        console.error("Unable to load predictive insights:", error);
+        messageElement.textContent = "Unable to load predictive insights. Please try again.";
+    }
+}
+
 
 checkActiveSession();
